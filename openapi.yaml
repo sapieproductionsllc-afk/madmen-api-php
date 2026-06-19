@@ -1,0 +1,566 @@
+openapi: 3.0.3
+info:
+  title: MadMen API
+  version: 0.1.0
+  description: >
+    API du Module 1 — **Gestion Intelligente des Employés & Contrôle des Postes de Travail**.
+
+    Routes actives : Système (`/`, `/health`), Employés (CRUD complet), Présence,
+    Sessions, Alertes et Tableau de bord. Le « Try it out » de Swagger fonctionne en direct.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Serveur de développement local
+
+tags:
+  - name: Système
+    description: Santé et métadonnées de l'API
+  - name: Employés
+    description: Enrôlement et gestion des employés
+  - name: Présence
+    description: Pointage biométrique
+  - name: Biométrie
+    description: Enrôlement des empreintes / badges RFID / visages
+  - name: Sessions
+    description: Sessions de travail et surveillance des postes
+  - name: Alertes
+    description: Notifications temps réel aux supérieurs
+  - name: Tableau de bord
+    description: Indicateurs présence / activité / productivité
+  - name: Productivité
+    description: Classement et détail de productivité (interface DG)
+
+paths:
+  /:
+    get:
+      tags: [Système]
+      summary: Informations sur l'API
+      responses:
+        '200':
+          description: Métadonnées de l'API
+  /health:
+    get:
+      tags: [Système]
+      summary: Vérifier la connexion à la base de données
+      responses:
+        '200':
+          description: API et DB opérationnelles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  db: { type: string, example: connected }
+
+  /api/employes:
+    get:
+      tags: [Employés]
+      summary: Lister les employés
+      parameters:
+        - { in: query, name: departement_id, schema: { type: integer }, description: Filtrer par département }
+        - { in: query, name: statut, schema: { type: string, enum: [actif, suspendu, conge] } }
+      responses:
+        '200':
+          description: Liste des employés
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Employe' }
+    post:
+      tags: [Employés]
+      summary: Enrôler un nouvel employé
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeInput' }
+      responses:
+        '201':
+          description: Employé créé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employe' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/employes/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+    get:
+      tags: [Employés]
+      summary: Détail d'un employé
+      responses:
+        '200':
+          description: Employé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employe' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Employés]
+      summary: Mettre à jour un employé
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeInput' }
+      responses:
+        '200':
+          description: Employé mis à jour
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employe' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Employés]
+      summary: Supprimer un employé
+      responses:
+        '204': { description: Supprimé }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/config/biometrie:
+    get:
+      tags: [Biométrie]
+      summary: Configuration biométrique (pour le front)
+      description: Valeurs non sensibles utilisées par la page d'enrôlement (device, URL du service local, seuil, mode simulation).
+      responses:
+        '200':
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device: { type: string, example: zkteco }
+                  bridge_url: { type: string, example: "http://127.0.0.1:8080" }
+                  samples: { type: integer, example: 3 }
+                  threshold: { type: integer, example: 55 }
+                  template_format: { type: string, example: ansi }
+                  simulation: { type: boolean, example: true }
+
+  /api/employes/{id}/biometrie:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer }, description: ID employé }
+    get:
+      tags: [Biométrie]
+      summary: Lister les biométries enrôlées d'un employé
+      description: Retourne les métadonnées (jamais le gabarit lui-même).
+      responses:
+        '200':
+          description: Liste des enrôlements
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Biométrie]
+      summary: Enrôler une biométrie (empreinte / rfid / facial)
+      description: >
+        La **capture** se fait côté device (front) via le SDK du lecteur, qui produit un
+        gabarit. Le front envoie ce gabarit en base64. L'API le **chiffre (AES-256-GCM)**
+        avant stockage. Pour le type `rfid`, envoyer `badge_rfid` au lieu de `template`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [empreinte, rfid, facial] }
+                doigt: { type: string, nullable: true, example: index_droit }
+                template: { type: string, description: "Gabarit en base64 (empreinte/facial)", example: "Qk9EWS1URU1QTEFURQ==" }
+                badge_rfid: { type: string, description: "UID du badge (type rfid)", example: "BADGE-0001" }
+      responses:
+        '201': { description: Biométrie enrôlée }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/biometrie/{id}:
+    delete:
+      tags: [Biométrie]
+      summary: Supprimer une biométrie enrôlée
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Supprimée }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/pointages:
+    get:
+      tags: [Présence]
+      summary: Lister les pointages
+      parameters:
+        - { in: query, name: employe_id, schema: { type: integer } }
+        - { in: query, name: date, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Liste des pointages
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pointage' }
+    post:
+      tags: [Présence]
+      summary: Enregistrer un pointage (arrivée / sortie)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employe_id, methode]
+              properties:
+                employe_id: { type: integer }
+                appareil_id: { type: integer, nullable: true }
+                methode: { type: string, enum: [empreinte, rfid, facial, pin] }
+      responses:
+        '201':
+          description: Pointage enregistré
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pointage' }
+
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: Lister les sessions de travail
+      parameters:
+        - { in: query, name: statut, schema: { type: string, enum: [ouverte, verrouillee, fermee] } }
+      responses:
+        '200':
+          description: Liste des sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SessionTravail' }
+
+  /api/sessions/login:
+    post:
+      tags: [Sessions]
+      summary: Ouvrir une session (Matricule + Code PIN + empreinte)
+      description: >
+        Vérifie le PIN (côté backend), l'autorisation sur le poste, puis ouvre la session.
+        L'empreinte est validée côté device et transmise via `empreinte_ok`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matricule, code_pin, poste_travail_code]
+              properties:
+                matricule: { type: string, example: EMP-0003 }
+                code_pin: { type: string, example: "1002" }
+                poste_travail_code: { type: string, example: PC-COMP-02 }
+                empreinte_ok: { type: boolean, example: true, description: "Empreinte validée par le lecteur" }
+      responses:
+        '201': { description: Session ouverte }
+        '401': { description: Identifiants invalides }
+        '403': { description: Non autorisé sur ce poste }
+
+  /api/sessions/identifier:
+    post:
+      tags: [Sessions]
+      summary: Ouvrir une session par empreinte (identification 1:N)
+      description: >
+        Connexion sans matricule ni PIN. Le matching réel de gabarits (ANSI/ISO) n'est pas
+        réalisable en PHP pur : il est délégué au service ZKBioOnline / au device, qui résout
+        l'empreinte capturée en un `employe_id`.
+
+
+        - **Mode simulation** (`BIO_SIMULATION=true`) : l'identification est simulée — le backend
+          choisit un employé ayant une empreinte enrôlée active et autorisé sur le poste, puis
+          ouvre la session. La réponse porte `"simulated": true`.
+
+
+        - **Mode réel** (`BIO_SIMULATION=false`) : ZKBioOnline / le device effectue le matching et
+          doit fournir l'`employe_id`. Sans `employe_id`, l'API renvoie `501` (service biométrique requis).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [poste_travail_code]
+              properties:
+                poste_travail_code: { type: string, example: PC-COMP-02 }
+                template:
+                  type: string
+                  description: "Gabarit capturé en base64 (optionnel ; ignoré en simulation)."
+                  example: "QU5TSS1URU1QTEFURQ=="
+                employe_id:
+                  type: integer
+                  description: "Employé résolu par ZKBioOnline/device. Requis en mode réel."
+                  example: 3
+      responses:
+        '201': { description: "Session ouverte. Contient `simulated`, `session` et `employe`." }
+        '404': { description: Poste inconnu, ou aucun employé éligible (simulation) }
+        '422': { description: Champ manquant, ou employé sans empreinte enrôlée }
+        '501': { description: Service biométrique requis (mode réel, employe_id manquant) }
+
+  /api/sessions/{id}/lock:
+    post:
+      tags: [Sessions]
+      summary: Verrouiller la session (inactivité)
+      description: Crée un incident d'inactivité et alerte le supérieur.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Session verrouillée }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/unlock:
+    post:
+      tags: [Sessions]
+      summary: Reprendre la session (PIN + motif)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code_pin]
+              properties:
+                code_pin: { type: string, example: "1002" }
+                motif_id: { type: integer, example: 4, description: "Réf. motif_absence" }
+                justification: { type: string, example: "Pause café" }
+      responses:
+        '200': { description: Session reprise }
+        '401': { description: PIN invalide }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/logout:
+    post:
+      tags: [Sessions]
+      summary: Fermer la session
+      description: Calcule les durées active/inactive et libère le poste.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Session fermée }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/activite:
+    post:
+      tags: [Sessions]
+      summary: Heartbeat de surveillance (échantillon d'activité)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mouvements_souris: { type: integer, example: 320 }
+                frappes_clavier: { type: integer, example: 1200 }
+                app_active: { type: string, example: Excel }
+                niveau_activite: { type: string, enum: [actif, inactif], example: actif }
+      responses:
+        '201': { description: Activité enregistrée }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/alertes:
+    get:
+      tags: [Alertes]
+      summary: Lister les alertes
+      parameters:
+        - { in: query, name: destinataire_id, schema: { type: integer }, description: Supérieur destinataire }
+        - { in: query, name: lu, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Liste des alertes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Alerte' }
+
+  /api/dashboard/presence:
+    get:
+      tags: [Tableau de bord]
+      summary: Résumé présence du jour
+      responses:
+        '200':
+          description: Compteurs de présence
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presents: { type: integer, example: 42 }
+                  absents: { type: integer, example: 5 }
+                  en_conge: { type: integer, example: 3 }
+                  actifs: { type: integer, example: 38 }
+                  inactifs: { type: integer, example: 4 }
+
+  /api/productivite/classement:
+    get:
+      tags: [Productivité]
+      summary: Classement des employés par productivité
+      description: >
+        Classe les employés selon leur taux de productivité moyen sur la période.
+        Idéal pour le « classement des meilleurs employés » de l'interface DG.
+      parameters:
+        - in: query
+          name: periode
+          schema: { type: string, enum: [mois, trimestre, semestre, tout] }
+          description: Raccourci de période (sinon utiliser from/to)
+        - { in: query, name: from, schema: { type: string, format: date }, description: Date de début }
+        - { in: query, name: to, schema: { type: string, format: date }, description: Date de fin }
+        - { in: query, name: departement_id, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+        - { in: query, name: ordre, schema: { type: string, enum: [desc, asc], default: desc } }
+      responses:
+        '200':
+          description: Classement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periode: { type: string, example: tout }
+                  classement:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClassementLigne' }
+
+  /api/productivite/{id}:
+    get:
+      tags: [Productivité]
+      summary: Détail de productivité d'un employé
+      description: Agrégats + série quotidienne (pour graphiques).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: periode, schema: { type: string, enum: [mois, trimestre, semestre, tout] } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Détail productivité
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  responses:
+    NotFound:
+      description: Ressource introuvable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Données invalides
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: "Not Found" }
+
+    ClassementLigne:
+      type: object
+      properties:
+        rang: { type: integer, example: 1 }
+        id: { type: integer, example: 11 }
+        matricule: { type: string, example: EMP-0011 }
+        nom: { type: string, example: Paul Garnier }
+        departement: { type: string, example: Ressources Humaines }
+        taux_moyen: { type: number, format: float, example: 95.6 }
+        heures_travaillees: { type: number, format: float, example: 1045.9 }
+        heures_inactivite: { type: number, format: float, example: 78.4 }
+        retard_total_min: { type: integer, example: 1241 }
+        total_arrets: { type: integer, example: 210 }
+        jours_travailles: { type: integer, example: 123 }
+
+    Departement:
+      type: object
+      properties:
+        id: { type: integer }
+        nom: { type: string, example: Comptabilité }
+        code: { type: string, nullable: true, example: COMP }
+
+    Poste:
+      type: object
+      properties:
+        id: { type: integer }
+        intitule: { type: string, example: Comptable }
+        departement_id: { type: integer, nullable: true }
+
+    Employe:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        matricule: { type: string, example: EMP-0001 }
+        nom: { type: string, example: Dupont }
+        prenom: { type: string, example: Jean }
+        photo_url: { type: string, nullable: true }
+        poste_id: { type: integer, nullable: true }
+        departement_id: { type: integer, nullable: true }
+        superieur_id: { type: integer, nullable: true }
+        telephone: { type: string, nullable: true }
+        adresse: { type: string, nullable: true }
+        contact_urgence_nom: { type: string, nullable: true }
+        contact_urgence_tel: { type: string, nullable: true }
+        salaire: { type: number, format: float, nullable: true, example: 3500.00 }
+        statut: { type: string, enum: [actif, suspendu, conge], example: actif }
+        created_at: { type: string, format: date-time }
+
+    EmployeInput:
+      type: object
+      required: [matricule, nom, prenom, code_pin]
+      properties:
+        matricule: { type: string, example: EMP-0001 }
+        nom: { type: string, example: Dupont }
+        prenom: { type: string, example: Jean }
+        photo_url: { type: string, nullable: true }
+        poste_id: { type: integer, nullable: true }
+        departement_id: { type: integer, nullable: true }
+        superieur_id: { type: integer, nullable: true }
+        telephone: { type: string, nullable: true }
+        adresse: { type: string, nullable: true }
+        contact_urgence_nom: { type: string, nullable: true }
+        contact_urgence_tel: { type: string, nullable: true }
+        salaire: { type: number, format: float, nullable: true }
+        code_pin: { type: string, description: "PIN en clair — sera haché côté serveur", example: "1234" }
+        statut: { type: string, enum: [actif, suspendu, conge], default: actif }
+
+    Pointage:
+      type: object
+      properties:
+        id: { type: integer }
+        employe_id: { type: integer }
+        appareil_id: { type: integer, nullable: true }
+        date: { type: string, format: date }
+        heure_entree: { type: string, format: date-time, nullable: true }
+        heure_sortie: { type: string, format: date-time, nullable: true }
+        methode: { type: string, enum: [empreinte, rfid, facial, pin] }
+        retard_minutes: { type: integer, example: 0 }
+        statut: { type: string, enum: [present, absent, retard, conge] }
+
+    SessionTravail:
+      type: object
+      properties:
+        id: { type: integer }
+        employe_id: { type: integer }
+        poste_travail_id: { type: integer }
+        heure_debut: { type: string, format: date-time }
+        heure_fin: { type: string, format: date-time, nullable: true }
+        statut: { type: string, enum: [ouverte, verrouillee, fermee] }
+        duree_active_sec: { type: integer }
+        duree_inactive_sec: { type: integer }
+
+    Alerte:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [inactivite, retard, absence, deconnexion, connexion_refusee] }
+        employe_id: { type: integer, nullable: true }
+        poste_travail_id: { type: integer, nullable: true }
+        destinataire_id: { type: integer, nullable: true }
+        message: { type: string, example: "Inactivité détectée — Pause café (7 min)" }
+        horodatage: { type: string, format: date-time }
+        lu: { type: boolean, example: false }

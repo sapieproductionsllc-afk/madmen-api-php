@@ -1,0 +1,22 @@
+{
+    "name": "sapieproductions/madmen-api-php",
+    "description": "API native PHP (PDO) - MadMen Module 1 : Gestion Intelligente des Employes & Controle des Postes",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "MadMen\\": "src/"
+        }
+    },
+    "scripts": {
+        "migrate": "php database/migrate.php migrate",
+        "rollback": "php database/migrate.php rollback",
+        "seed": "php database/seed.php",
+        "serve": "php -S 127.0.0.1:8000 -t public public/index.php"
+    }
+}
