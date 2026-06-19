@@ -28,6 +28,8 @@ tags:
     description: Indicateurs présence / activité / productivité
   - name: Productivité
     description: Classement et détail de productivité (interface DG)
+  - name: Pointeuse K40
+    description: Terminal de pointage réseau ZKTeco K40 (arrivée/départ par empreinte)
 
 paths:
   /:
@@ -441,6 +443,67 @@ paths:
         '200':
           description: Détail productivité
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/k40/status:
+    get:
+      tags: [Pointeuse K40]
+      summary: Tester la connexion au terminal K40
+      responses:
+        '200':
+          description: État de la connexion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected: { type: boolean, example: false }
+                  ip: { type: string, example: "192.168.1.201" }
+                  port: { type: integer, example: 4370 }
+                  version: { type: string }
+                  error: { type: string }
+
+  /api/k40/sync:
+    post:
+      tags: [Pointeuse K40]
+      summary: Synchroniser les pointages du K40
+      description: >
+        Récupère les transactions du terminal (empreinte), les mappe aux employés
+        (via device_user_id, sinon l'id), et remplit la table pointage (1er punch du
+        jour = arrivée, dernier = départ). Idempotent (état de dernière synchro).
+      responses:
+        '200':
+          description: Résumé de la synchro
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recus: { type: integer, example: 124 }
+                  traites: { type: integer, example: 120 }
+                  ignores: { type: integer, example: 4 }
+                  employes_inconnus: { type: array, items: { type: string } }
+                  derniere_synchro: { type: string, example: "2026-06-19 17:40:00" }
+        '502': { description: Terminal injoignable ou désactivé }
+
+  /api/k40/users:
+    get:
+      tags: [Pointeuse K40]
+      summary: Lister les utilisateurs enregistrés sur le terminal
+      responses:
+        '200': { description: Liste des utilisateurs du K40 }
+        '502': { description: Terminal injoignable }
+
+  /api/k40/push-user/{id}:
+    post:
+      tags: [Pointeuse K40]
+      summary: Envoyer un employé vers le terminal K40
+      description: Crée l'utilisateur sur le K40 (userid = device_user_id ou id de l'employé).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Employé envoyé }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { description: Terminal injoignable }
 
 components:
   responses:

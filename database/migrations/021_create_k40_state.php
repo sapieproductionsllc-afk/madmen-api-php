@@ -1,0 +1,9 @@
+<?php
+return [
+    'up' => "CREATE TABLE k40_state (
+        id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+        last_sync_at DATETIME NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    'down' => "DROP TABLE IF EXISTS k40_state",
+];

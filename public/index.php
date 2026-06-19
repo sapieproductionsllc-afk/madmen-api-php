@@ -7,7 +7,13 @@ declare(strict_types=1);
  * Lancer :  php -S 127.0.0.1:8000 -t public public/index.php
  */
 
-// --- Autoloader PSR-4 minimal (MadMen\ -> src/) ---
+// --- Autoload Composer (rats/zkteco, etc.) si présent ---
+$composerAutoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (is_file($composerAutoload)) {
+    require $composerAutoload;
+}
+
+// --- Autoloader PSR-4 minimal (MadMen\ -> src/) — fallback ---
 spl_autoload_register(static function (string $class): void {
     $prefix = 'MadMen\\';
     $base = dirname(__DIR__) . '/src/';
@@ -30,6 +36,7 @@ use MadMen\Controllers\DashboardController;
 use MadMen\Controllers\ProductiviteController;
 use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
+use MadMen\Controllers\K40Controller;
 
 // Sert les fichiers statiques existants tels quels (serveur intégré PHP).
 if (PHP_SAPI === 'cli-server') {
@@ -141,6 +148,12 @@ $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']
 // --- API : Productivité ---
 $router->get('/api/productivite/classement', [ProductiviteController::class, 'classement']);
 $router->get('/api/productivite/{id}', [ProductiviteController::class, 'show']);
+
+// --- API : Pointeuse K40 (terminal de pointage) ---
+$router->get('/api/k40/status', [K40Controller::class, 'status']);
+$router->post('/api/k40/sync', [K40Controller::class, 'sync']);
+$router->get('/api/k40/users', [K40Controller::class, 'users']);
+$router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
 
 try {
     $router->dispatch($method, $uri);

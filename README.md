@@ -15,6 +15,9 @@ API backend du **Module 1 — Gestion Intelligente des Employés & Contrôle des
 cp .env.example .env
 #   -> renseigner DB_HOST, DB_NAME, DB_USER, DB_PASS
 
+# 1b. Installer les dépendances Composer (rats/zkteco pour la pointeuse K40)
+composer install
+
 # 2. Créer la base + toutes les tables
 php database/migrate.php
 
