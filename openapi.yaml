@@ -30,6 +30,8 @@ tags:
     description: Classement et détail de productivité (interface DG)
   - name: Pointeuse K40
     description: Terminal de pointage réseau ZKTeco K40 (arrivée/départ par empreinte)
+  - name: Synchronisation
+    description: Synchro montante offline-first (clients qui rejouent leurs événements bufferisés)
 
 paths:
   /:
@@ -444,6 +446,118 @@ paths:
           description: Détail productivité
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/sync:
+    post:
+      tags: [Synchronisation]
+      summary: Synchroniser un lot d'événements bufferisés (offline-first)
+      description: >
+        Un client (agent poste, APK, web) renvoie ici les événements créés
+        HORS-LIGNE quand il reconnecte. Chaque événement porte un `client_uuid`
+        (clé UNIQUE) : rejouer le même n'insère pas de doublon (idempotent).
+        Ordre interne : sessions d'abord, puis pointages, puis activités/incidents
+        (qui référencent une session via `session_client_uuid`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, client_uuid]
+                    properties:
+                      type: { type: string, enum: [session, pointage, activite, incident] }
+                      client_uuid: { type: string, format: uuid }
+                      session_client_uuid: { type: string, format: uuid, description: "Pour activite/incident : rattache à une session du lot" }
+                      employe_id: { type: integer }
+                      poste_travail_code: { type: string, example: PC-COMP-02 }
+            example:
+              events:
+                - { type: session, client_uuid: "8f1c...-001", employe_id: 3, poste_travail_code: PC-COMP-02, heure_debut: "2026-06-20 08:00:00", heure_fin: "2026-06-20 17:00:00", statut: fermee }
+                - { type: pointage, client_uuid: "8f1c...-002", employe_id: 3, date: "2026-06-20", heure_entree: "2026-06-20 08:00:00" }
+      responses:
+        '200':
+          description: Résumé de la synchro
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recus: { type: integer, example: 3 }
+                  acceptes: { type: integer, example: 3 }
+                  doublons: { type: integer, example: 0 }
+                  erreurs: { type: array, items: { type: object } }
+                  accepted_uuids: { type: array, items: { type: string } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /iclock/cdata:
+    get:
+      tags: [Pointeuse K40]
+      summary: "[Push/ADMS] Handshake du terminal K40"
+      description: >
+        Mode PUSH (le K40 envoie vers l'API). Le terminal appelle cette route au
+        démarrage ; l'API renvoie ses options (text/plain). Route publique
+        (identifiée par le SN du terminal). Active si `K40_MODE=push|both`.
+      parameters:
+        - { in: query, name: SN, schema: { type: string }, description: Numéro de série du terminal }
+        - { in: query, name: options, schema: { type: string } }
+      responses:
+        '200':
+          description: Options du terminal (text/plain)
+          content:
+            text/plain:
+              schema: { type: string }
+    post:
+      tags: [Pointeuse K40]
+      summary: "[Push/ADMS] Le K40 pousse ses données (pointages)"
+      description: >
+        `table=ATTLOG` : le corps contient les pointages (lignes
+        `userid<TAB>timestamp<TAB>status<TAB>...`). Chaque ligne alimente la table
+        `pointage` (arrivée/départ). Réponse `OK: <n>`.
+      parameters:
+        - { in: query, name: SN, schema: { type: string } }
+        - { in: query, name: table, schema: { type: string, example: ATTLOG } }
+      requestBody:
+        content:
+          text/plain:
+            schema: { type: string, example: "3\t2026-06-20 08:05:00\t0\t1" }
+      responses:
+        '200':
+          description: 'Acquittement text/plain, ex. OK suivi du nombre de lignes'
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /iclock/getrequest:
+    get:
+      tags: [Pointeuse K40]
+      summary: "[Push/ADMS] Le terminal demande des commandes"
+      parameters:
+        - { in: query, name: SN, schema: { type: string } }
+      responses:
+        '200':
+          description: Commandes à exécuter (text/plain, "OK" si aucune)
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /iclock/devicecmd:
+    post:
+      tags: [Pointeuse K40]
+      summary: "[Push/ADMS] Résultat des commandes du terminal"
+      parameters:
+        - { in: query, name: SN, schema: { type: string } }
+      responses:
+        '200':
+          description: Acquittement (text/plain "OK")
+          content:
+            text/plain:
+              schema: { type: string }
+
   /api/k40/status:
     get:
       tags: [Pointeuse K40]
@@ -506,6 +620,14 @@ paths:
         '502': { description: Terminal injoignable }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Clé API statique. Requise sur les routes `/api/*` quand `AUTH_ENABLED=true`
+        (en-tête `Authorization: Bearer <API_KEY>`). Routes publiques :
+        `/`, `/health`, `/docs`, `/openapi.yaml` et `/iclock/*` (protocole terminal).
   responses:
     NotFound:
       description: Ressource introuvable

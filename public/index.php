@@ -40,6 +40,7 @@ use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
 use MadMen\Controllers\K40Controller;
 use MadMen\Controllers\K40PushController;
+use MadMen\Controllers\SyncController;
 
 // Sert les fichiers statiques existants tels quels (serveur intégré PHP).
 if (PHP_SAPI === 'cli-server') {
@@ -142,6 +143,9 @@ $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);
 $router->post('/api/sessions/{id}/logout', [SessionController::class, 'logout']);
 $router->post('/api/sessions/{id}/activite', [SessionController::class, 'activite']);
+
+// --- API : Synchronisation montante (offline-first) ---
+$router->post('/api/sync', [SyncController::class, 'sync']);
 
 // --- API : Alertes ---
 $router->get('/api/alertes', [AlerteController::class, 'index']);
