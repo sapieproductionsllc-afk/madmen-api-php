@@ -42,6 +42,7 @@ use MadMen\Controllers\K40Controller;
 use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
 use MadMen\Controllers\MotifController;
+use MadMen\Controllers\AuthController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -144,6 +145,10 @@ $router->post('/api/pointages', [PointageController::class, 'store']);
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
 $router->post('/api/sessions/login', [SessionController::class, 'login']);
+
+// --- API : Authentification dashboard (login par PIN -> JWT + rôle) ---
+$router->post('/api/auth/login', [AuthController::class, 'login']);
+$router->get('/api/auth/me', [AuthController::class, 'me']);
 $router->post('/api/sessions/identifier', [SessionController::class, 'identifier']);
 $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);
@@ -186,7 +191,7 @@ if (in_array($k40Config['mode'] ?? 'pull', ['push', 'both'], true)) {
 // --- Authentification (C1) : appliquée AVANT le dispatch, après l'enregistrement
 // des routes. Liste blanche : /, /health, /docs, /openapi.yaml. Piloté par
 // AUTH_ENABLED (.env) ; si false, on laisse passer (démo).
-Auth::enforce($uri);
+Auth::enforce($method, $uri);
 
 try {
     $router->dispatch($method, $uri);

@@ -109,8 +109,8 @@ $employes = [
 $insEmp = $pdo->prepare(
     'INSERT INTO employe
         (matricule, nom, prenom, poste_id, departement_id, superieur_id, telephone,
-         contact_urgence_nom, contact_urgence_tel, salaire, code_pin_hash, statut)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         contact_urgence_nom, contact_urgence_tel, salaire, code_pin_hash, statut, role)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 $empIds = [];
@@ -130,10 +130,11 @@ foreach ($employes as $i => $e) {
     $matricule = sprintf('EMP-%04d', $i + 1);
     $pinHash = password_hash((string) (1000 + $i), PASSWORD_BCRYPT);
     $tel = '06' . mt_rand(10000000, 99999999);
+    $roleDb = ['dg' => 'super_admin', 'chef' => 'superviseur', 'emp' => 'employe'][$role] ?? 'employe';
 
     $insEmp->execute([
         $matricule, $nom, $prenom, $posteId[$poste], $depId[$dep], $superieur, $tel,
-        'Contact ' . $prenom, '07' . mt_rand(10000000, 99999999), $salaire, $pinHash, 'actif',
+        'Contact ' . $prenom, '07' . mt_rand(10000000, 99999999), $salaire, $pinHash, 'actif', $roleDb,
     ]);
     $id = (int) $pdo->lastInsertId();
     $empIds[] = ['id' => $id, 'dep' => $dep, 'role' => $role];

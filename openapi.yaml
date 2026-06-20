@@ -12,6 +12,8 @@ servers:
     description: Serveur de développement local
 
 tags:
+  - name: Authentification
+    description: Connexion dashboard (Matricule + PIN → jeton JWT avec rôle) et RBAC
   - name: Système
     description: Santé et métadonnées de l'API
   - name: Employés
@@ -445,6 +447,52 @@ paths:
         '200':
           description: Détail productivité
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/auth/login:
+    post:
+      tags: [Authentification]
+      summary: Connexion (Matricule + Code PIN) → jeton JWT
+      description: >
+        Vérifie le matricule + PIN (haché) et renvoie un jeton JWT portant le
+        **rôle** (super_admin / directeur / superviseur / employe). Route publique.
+        Le jeton est ensuite envoyé en `Authorization: Bearer <token>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matricule, code_pin]
+              properties:
+                matricule: { type: string, example: EMP-0001 }
+                code_pin: { type: string, example: "1000" }
+      responses:
+        '200':
+          description: Jeton + profil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  employe:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      matricule: { type: string }
+                      nom: { type: string }
+                      prenom: { type: string }
+                      role: { type: string, enum: [super_admin, directeur, superviseur, employe] }
+        '401': { description: Identifiants invalides }
+
+  /api/auth/me:
+    get:
+      tags: [Authentification]
+      summary: Utilisateur courant (depuis le jeton)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Profil courant (id, matricule, role) }
+        '401': { description: Non authentifié }
 
   /api/sync:
     post:

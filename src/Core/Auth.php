@@ -14,48 +14,93 @@ final class Auth
     /** Routes accessibles sans authentification (système & documentation). */
     private const PUBLIC_PATHS = ['/', '/health', '/docs', '/openapi.yaml'];
 
+    /** Hiérarchie des rôles (rang croissant). super_admin peut tout faire. */
+    private const RANKS = ['employe' => 1, 'superviseur' => 2, 'directeur' => 3, 'super_admin' => 4];
+
     /**
      * Vérifie l'authentification pour l'URI demandée. Si AUTH_ENABLED=true et que
      * la route n'est pas publique, exige un Bearer valide ; renvoie un 401 JSON
      * (et termine la requête) sinon.
      */
-    public static function enforce(string $uri): void
+    public static function enforce(string $method, string $uri): void
     {
         if (!Env::bool('AUTH_ENABLED', false)) {
             return; // Auth désactivée (démo) : on laisse passer.
         }
-
         if (in_array($uri, self::PUBLIC_PATHS, true)) {
             return; // Route publique (liste blanche).
         }
-
-        // Protocole ADMS/iclock du K40 : le terminal ne peut pas envoyer de clé.
-        // Ces routes sont authentifiées par le numéro de série (SN) du terminal.
-        if (str_starts_with($uri, '/iclock/')) {
+        // Login public + protocole terminal /iclock (authentifié par SN).
+        if ($uri === '/api/auth/login' || str_starts_with($uri, '/iclock/')) {
             return;
         }
 
-        $expectedKeys = self::expectedKeys();
         $provided = self::bearerToken();
-
-        // m2 : auth activée mais aucune clé configurée => tout est refusé (401).
-        // On l'enregistre une fois par requête avant de renvoyer l'erreur.
-        if ($expectedKeys === []) {
-            error_log('AVERTISSEMENT: AUTH_ENABLED=true mais aucune API_KEY configurée -> tout est refusé (401).');
+        if ($provided === null) {
             Response::json(['error' => 'Non autorisé'], 401);
         }
 
-        // M3 : compare le jeton fourni à chacune des clés autorisées avec
-        // hash_equals (comparaison à temps constant, anti-timing).
-        if ($provided !== null) {
-            foreach ($expectedKeys as $key) {
-                if (hash_equals($key, $provided)) {
-                    return; // Clé valide.
-                }
+        // 1) Clé API « maître » (clients machine / agents) = accès total.
+        $keys = self::expectedKeys();
+        if ($keys === []) {
+            error_log('AVERTISSEMENT: AUTH_ENABLED=true mais aucune API_KEY configurée.');
+        }
+        foreach ($keys as $key) {
+            if (hash_equals($key, $provided)) {
+                return; // Clé maître : tous les droits.
             }
         }
 
-        Response::json(['error' => 'Non autorisé'], 401);
+        // 2) Jeton JWT utilisateur (RBAC par rôle).
+        $payload = Jwt::decode($provided);
+        if ($payload === null) {
+            Response::json(['error' => 'Non autorisé'], 401);
+        }
+        $role = (string) ($payload['role'] ?? 'employe');
+        if ($role === 'super_admin') {
+            return; // Le super admin peut TOUT faire.
+        }
+        $rank = self::RANKS[$role] ?? 1;
+        if ($rank < self::requiredRank($method, $uri)) {
+            Response::json(['error' => 'Accès interdit : rôle insuffisant'], 403);
+        }
+    }
+
+    /** Payload du jeton JWT courant (ou null si absent/invalide). */
+    public static function currentUser(): ?array
+    {
+        $token = self::bearerToken();
+
+        return $token === null ? null : Jwt::decode($token);
+    }
+
+    /**
+     * Rang minimum requis pour (méthode, uri).
+     *  - Actions poste/agent (sessions, pointages, sync) : employe (1)
+     *  - Écritures de gestion (employés, biométrie, k40, config) : super_admin (4)
+     *  - Lectures /api/* : superviseur (2)
+     */
+    private static function requiredRank(string $method, string $uri): int
+    {
+        if ($uri === '/api/auth/me') {
+            return 1;
+        }
+        if ($method === 'POST') {
+            if (in_array($uri, ['/api/sessions/login', '/api/sessions/identifier', '/api/pointages', '/api/sync'], true)) {
+                return 1;
+            }
+            if (preg_match('#^/api/sessions/\d+/(lock|unlock|logout|activite)$#', $uri) === 1) {
+                return 1;
+            }
+        }
+        if ($method !== 'GET' && preg_match('#^/api/(employes|biometrie|k40|config)#', $uri) === 1) {
+            return 4; // écritures de gestion réservées au super_admin
+        }
+        if ($method === 'GET' && str_starts_with($uri, '/api/')) {
+            return 2; // consultation : superviseur et au-dessus
+        }
+
+        return 4; // par défaut : prudence
     }
 
     /**
