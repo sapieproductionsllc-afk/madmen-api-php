@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Env;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDO;
@@ -72,7 +73,11 @@ final class SyncController
             $db->commit();
         } catch (Throwable $ex) {
             $db->rollBack();
-            Response::error('Synchronisation échouée : ' . $ex->getMessage(), 500);
+            if (Env::bool('APP_DEBUG', false)) {
+                Response::error('Synchronisation échouée : ' . $ex->getMessage(), 500);
+            }
+            error_log('Sync: ' . $ex->getMessage());
+            Response::error('Synchronisation échouée', 500);
         }
 
         Response::json([
@@ -103,6 +108,9 @@ final class SyncController
         $empId = (int) ($e['employe_id'] ?? 0);
         if (!$this->employeExiste($db, $empId)) {
             return ['erreur:employe inconnu', null];
+        }
+        if (!$this->estAutorise($db, $empId, $posteId)) {
+            return ['erreur:non autorisé sur ce poste', null];
         }
 
         try {
@@ -275,6 +283,14 @@ final class SyncController
         }
         $stmt = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $stmt->execute([$id]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
+    private function estAutorise(PDO $db, int $empId, int $posteId): bool
+    {
+        $stmt = $db->prepare('SELECT 1 FROM autorisation_poste WHERE employe_id = ? AND poste_travail_id = ?');
+        $stmt->execute([$empId, $posteId]);
 
         return (bool) $stmt->fetchColumn();
     }

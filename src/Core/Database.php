@@ -33,6 +33,11 @@ final class Database
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES   => false,
                 ]);
+
+                // Cohérence horaire : aligne le fuseau MySQL (NOW(), CURDATE())
+                // sur celui de PHP en lui passant l'offset courant (ex. +02:00).
+                // PHP a déjà fixé son fuseau via date_default_timezone_set().
+                self::$instance->exec("SET time_zone = '" . date('P') . "'");
             } catch (PDOException $e) {
                 throw new RuntimeException('Connexion DB impossible : ' . $e->getMessage(), (int) $e->getCode());
             }

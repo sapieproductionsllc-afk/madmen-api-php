@@ -24,4 +24,12 @@ return [
     // Mode de communication : 'pull' (l'API interroge le K40 sur le LAN),
     // 'push' (le K40 envoie vers l'API via /iclock — ADMS), ou 'both'.
     'mode'           => strtolower((string) ($env['K40_MODE'] ?? 'pull')),
+    // Liste blanche des numéros de série (SN) autorisés en mode Push.
+    // Lue depuis K40_PUSH_SN (.env, valeurs séparées par des virgules).
+    // Tableau vide = accepte tout terminal (dev) ; à renseigner en prod.
+    // C'est l'agent K40 (K40PushController) qui exploite cette liste.
+    'push_sn'        => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) ($env['K40_PUSH_SN'] ?? ''))
+    ), static fn (string $sn): bool => $sn !== '')),
 ];

@@ -30,7 +30,16 @@ final class K40Pointage
         return 'traite';
     }
 
-    /** Résout un identifiant terminal vers un employé (device_user_id, sinon id). */
+    /**
+     * Résout un identifiant terminal vers un employé.
+     *
+     * Priorité au mapping explicite via `device_user_id`. Le repli sur
+     * `employe.id` (quand l'identifiant est numérique) est volontairement borné :
+     * il ne sert qu'à l'amorçage, AVANT que le mapping ne soit fait. Dès qu'au
+     * moins un employé possède un `device_user_id` renseigné, on considère le
+     * mapping en place et on n'autorise plus le repli numérique — sinon un
+     * terminal forgé pourrait viser n'importe quel employé par son id.
+     */
     public static function resolveEmploye(PDO $db, string $deviceUserId): ?int
     {
         if ($deviceUserId === '') {
@@ -42,7 +51,8 @@ final class K40Pointage
         if ($id) {
             return (int) $id;
         }
-        if (ctype_digit($deviceUserId)) {
+        // Repli numérique uniquement si AUCUN mapping device_user_id n'existe en base.
+        if (ctype_digit($deviceUserId) && !self::mappingExiste($db)) {
             $stmt = $db->prepare('SELECT id FROM employe WHERE id = ?');
             $stmt->execute([(int) $deviceUserId]);
             $id = $stmt->fetchColumn();
@@ -52,6 +62,16 @@ final class K40Pointage
         }
 
         return null;
+    }
+
+    /** Indique si au moins un employé a un device_user_id renseigné (mapping fait). */
+    private static function mappingExiste(PDO $db): bool
+    {
+        $stmt = $db->query(
+            "SELECT 1 FROM employe WHERE device_user_id IS NOT NULL AND device_user_id <> '' LIMIT 1"
+        );
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /** Trouve ou crée l'appareil représentant le K40. */
