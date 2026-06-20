@@ -145,6 +145,7 @@ $router->post('/api/pointages', [PointageController::class, 'store']);
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
 $router->post('/api/sessions/login', [SessionController::class, 'login']);
+$router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin']);
 
 // --- API : Authentification dashboard (login par PIN -> JWT + rôle) ---
 $router->post('/api/auth/login', [AuthController::class, 'login']);

@@ -115,6 +115,89 @@ final class SessionController
     }
 
     /**
+     * Ouverture de session par PIN seul (sans matricule).
+     *
+     * Le PIN identifie l'employé PARMI ceux autorisés sur le poste (recherche bornée
+     * au poste : sur un PC personnel, c'est en général une seule personne). Plus sûr
+     * qu'une recherche globale de PIN (pas de collision entre postes).
+     */
+    public function loginPin(): void
+    {
+        $db = Database::connection();
+        $body = Request::body();
+
+        foreach (['code_pin', 'poste_travail_code'] as $required) {
+            if (empty($body[$required])) {
+                Response::error("Le champ '$required' est obligatoire", 422);
+            }
+        }
+
+        // 1) Poste de travail
+        $stmt = $db->prepare('SELECT * FROM poste_travail WHERE code = ?');
+        $stmt->execute([$body['poste_travail_code']]);
+        $poste = $stmt->fetch();
+        if (!$poste) {
+            Response::error('Poste de travail inconnu', 404);
+        }
+        $posteId = (int) $poste['id'];
+
+        // 2) Anti-brute-force
+        if ($this->tropDeTentatives($posteId)) {
+            Response::error('Trop de tentatives, réessayez plus tard', 429);
+        }
+
+        // 3) Identification : on cherche, parmi les employés autorisés sur ce poste,
+        //    celui dont le PIN correspond (password_verify sur chaque candidat).
+        $stmt = $db->prepare(
+            'SELECT e.id, e.matricule, e.nom, e.prenom, e.superieur_id, e.code_pin_hash
+             FROM employe e
+             JOIN autorisation_poste a ON a.employe_id = e.id AND a.poste_travail_id = ?'
+        );
+        $stmt->execute([$posteId]);
+
+        $employe = null;
+        foreach ($stmt->fetchAll() as $candidat) {
+            if (password_verify((string) $body['code_pin'], (string) $candidat['code_pin_hash'])) {
+                $employe = $candidat;
+                break;
+            }
+        }
+
+        if (!$employe) {
+            $this->logTentative(null, $posteId, 'pin', 'echec', 'PIN ne correspond à aucun employé autorisé sur ce poste');
+            Response::error('PIN invalide', 401);
+        }
+        $empId = (int) $employe['id'];
+
+        // 4) Empreinte (2e facteur, validée par le device)
+        $empreinteOk = !empty($body['empreinte_ok']);
+        $methodeAuth = $empreinteOk ? 'pin+empreinte' : 'pin';
+
+        // 5) Ouverture de session
+        $now = date('Y-m-d H:i:s');
+        $stmt = $db->prepare(
+            'INSERT INTO session_travail (employe_id, poste_travail_id, heure_debut, methode_auth, autorisation_ok, statut)
+             VALUES (?, ?, ?, ?, 1, ?)'
+        );
+        $stmt->execute([$empId, $posteId, $now, $methodeAuth, 'ouverte']);
+        $sessionId = (int) $db->lastInsertId();
+
+        $db->prepare("UPDATE poste_travail SET statut = 'occupe' WHERE id = ?")->execute([$posteId]);
+        $this->logTentative($empId, $posteId, $empreinteOk ? 'empreinte' : 'pin', 'succes', null);
+
+        Response::json([
+            'message' => 'Session ouverte',
+            'session' => $this->find($sessionId),
+            'employe' => [
+                'id'        => $empId,
+                'matricule' => $employe['matricule'],
+                'nom'       => $employe['nom'],
+                'prenom'    => $employe['prenom'],
+            ],
+        ], 201);
+    }
+
+    /**
      * Connexion par empreinte (identification 1:N) — ouvre la session sans matricule ni PIN.
      *
      * Le matching réel de gabarits (ANSI/ISO) n'est PAS faisable en PHP pur : il est
