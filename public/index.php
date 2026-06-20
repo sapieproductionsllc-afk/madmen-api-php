@@ -41,6 +41,7 @@ use MadMen\Controllers\ConfigController;
 use MadMen\Controllers\K40Controller;
 use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
+use MadMen\Controllers\MotifController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -129,6 +130,7 @@ $router->delete('/api/employes/{id}', [EmployeController::class, 'destroy']);
 
 // --- API : Configuration (front) ---
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);
+$router->get('/api/config/postes', [ConfigController::class, 'postes']);
 
 // --- API : Enrôlement biométrique ---
 $router->get('/api/employes/{id}/biometrie', [BiometrieController::class, 'index']);
@@ -153,6 +155,9 @@ $router->post('/api/sync', [SyncController::class, 'sync']);
 
 // --- API : Alertes ---
 $router->get('/api/alertes', [AlerteController::class, 'index']);
+
+// --- API : Motifs d'absence ---
+$router->get('/api/motifs', [MotifController::class, 'index']);
 
 // --- API : Tableau de bord ---
 $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']);

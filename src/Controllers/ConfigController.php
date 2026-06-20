@@ -21,4 +21,16 @@ final class ConfigController
             'simulation'      => $cfg['simulation'],
         ]);
     }
+
+    /** Paramètres de contrôle des postes destinés au client (seuils 7/20 min, heartbeat). */
+    public function postes(): void
+    {
+        $cfg = require dirname(__DIR__, 2) . '/config/postes.php';
+
+        Response::json([
+            'inactivite_lock_minutes' => (int) $cfg['inactivite_lock_minutes'],
+            'justification_minutes'   => (int) $cfg['justification_minutes'],
+            'heartbeat_seconds'       => (int) $cfg['heartbeat_seconds'],
+        ]);
+    }
 }
