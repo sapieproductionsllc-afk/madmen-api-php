@@ -35,7 +35,7 @@ final class K40Controller
                 'ip'        => $cfg['ip'],
                 'port'      => $cfg['port'],
                 'enabled'   => $cfg['enabled'],
-                'error'     => $e->getMessage(),
+                'error'     => $this->messagePublic('Connexion au terminal impossible', $e),
             ]);
         }
     }
@@ -47,7 +47,7 @@ final class K40Controller
             $resume = $this->runSync();
             Response::json($resume);
         } catch (Throwable $e) {
-            Response::error('Synchronisation K40 échouée : ' . $e->getMessage(), 502);
+            Response::error($this->messagePublic('Synchronisation K40 échouée', $e), 502);
         }
     }
 
@@ -60,7 +60,7 @@ final class K40Controller
             @$zk->disconnect();
             Response::json($users);
         } catch (Throwable $e) {
-            Response::error('Lecture des utilisateurs K40 échouée : ' . $e->getMessage(), 502);
+            Response::error($this->messagePublic('Lecture des utilisateurs K40 échouée', $e), 502);
         }
     }
 
@@ -84,7 +84,7 @@ final class K40Controller
             $zk->setUser((int) $emp['id'], $deviceUserId, $name, '');
             @$zk->disconnect();
         } catch (Throwable $e) {
-            Response::error('Envoi vers le K40 échoué : ' . $e->getMessage(), 502);
+            Response::error($this->messagePublic('Envoi vers le K40 échoué', $e), 502);
         }
 
         // Mémorise le mapping si absent.
@@ -94,6 +94,38 @@ final class K40Controller
         }
 
         Response::json(['message' => 'Employé envoyé au K40', 'device_user_id' => $deviceUserId]);
+    }
+
+    // ----------------------------------------------------------------- sécurité
+
+    /**
+     * Message d'erreur public : générique en production, détaillé seulement si
+     * APP_DEBUG est actif (le détail fuit l'IP/la structure interne sinon).
+     */
+    private function messagePublic(string $generique, Throwable $e): string
+    {
+        return $this->appDebug() ? $generique . ' : ' . $e->getMessage() : $generique;
+    }
+
+    /** Lit APP_DEBUG depuis le .env (lecture seule). Défaut : false. */
+    private function appDebug(): bool
+    {
+        $envFile = dirname(__DIR__, 2) . '/.env';
+        if (!is_file($envFile)) {
+            return false;
+        }
+        foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#' || strpos($line, 'APP_DEBUG') !== 0) {
+                continue;
+            }
+            [, $value] = array_pad(explode('=', $line, 2), 2, '');
+            $value = strtolower(trim($value));
+
+            return in_array($value, ['1', 'true', 'on', 'yes'], true);
+        }
+
+        return false;
     }
 
     // ------------------------------------------------------------------ logique

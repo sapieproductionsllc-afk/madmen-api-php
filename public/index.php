@@ -25,7 +25,9 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
+use MadMen\Core\Auth;
 use MadMen\Core\Database;
+use MadMen\Core\Env;
 use MadMen\Core\Response;
 use MadMen\Core\Router;
 use MadMen\Controllers\EmployeController;
@@ -46,7 +48,8 @@ if (PHP_SAPI === 'cli-server') {
     }
 }
 
-header('Access-Control-Allow-Origin: *');
+// CORS : origine restreinte via .env (CORS_ORIGIN). Défaut '*' pour la démo.
+header('Access-Control-Allow-Origin: ' . Env::get('CORS_ORIGIN', '*'));
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
@@ -155,8 +158,18 @@ $router->post('/api/k40/sync', [K40Controller::class, 'sync']);
 $router->get('/api/k40/users', [K40Controller::class, 'users']);
 $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
 
+// --- Authentification (C1) : appliquée AVANT le dispatch, après l'enregistrement
+// des routes. Liste blanche : /, /health, /docs, /openapi.yaml. Piloté par
+// AUTH_ENABLED (.env) ; si false, on laisse passer (démo).
+Auth::enforce($uri);
+
 try {
     $router->dispatch($method, $uri);
 } catch (Throwable $e) {
-    Response::json(['error' => $e->getMessage()], 500);
+    // C3 : message générique en prod, détail uniquement si APP_DEBUG=true.
+    if (Env::bool('APP_DEBUG', false)) {
+        Response::json(['error' => $e->getMessage()], 500);
+    }
+    error_log('Erreur non gérée : ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    Response::json(['error' => 'Erreur interne'], 500);
 }

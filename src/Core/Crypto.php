@@ -15,7 +15,9 @@ final class Crypto
     {
         $cfg = require dirname(__DIR__, 2) . '/config/app.php';
 
-        return hash('sha256', (string) $cfg['key'], true); // 32 octets
+        // Dérivation HKDF (RFC 5869) plutôt qu'un simple hash : meilleure
+        // séparation de domaine et résistance. 32 octets pour AES-256.
+        return hash_hkdf('sha256', (string) $cfg['key'], 32, 'madmen-biometrie-template');
     }
 
     public static function encrypt(string $plain): string
@@ -35,6 +37,12 @@ final class Crypto
 
         $plain = openssl_decrypt($cipher, self::CIPHER, self::key(), OPENSSL_RAW_DATA, $iv, $tag);
 
-        return $plain === false ? '' : $plain;
+        if ($plain === false) {
+            error_log('Crypto::decrypt a échoué (gabarit illisible : clé APP_KEY changée ou données corrompues ?).');
+
+            return '';
+        }
+
+        return $plain;
     }
 }

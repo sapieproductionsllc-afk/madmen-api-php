@@ -62,6 +62,11 @@ final class EmployeController
             }
         }
 
+        // Le PIN doit être composé de 4 à 8 chiffres.
+        if (!preg_match('/^\d{4,8}$/', (string) $body['code_pin'])) {
+            Response::error("Le champ 'code_pin' doit contenir entre 4 et 8 chiffres", 422);
+        }
+
         $data = $this->filterFillable($body);
         $data['code_pin_hash'] = password_hash((string) $body['code_pin'], PASSWORD_BCRYPT);
 

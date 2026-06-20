@@ -9,6 +9,12 @@ use MadMen\Core\Response;
 
 final class SessionController
 {
+    /** Anti-brute-force : nb max d'échecs PIN tolérés sur la fenêtre ci-dessous. */
+    private const MAX_ECHECS_PIN = 5;
+
+    /** Fenêtre glissante (en minutes) pour le comptage des échecs. */
+    private const FENETRE_ECHECS_MINUTES = 15;
+
     public function index(): void
     {
         $sql = 'SELECT * FROM session_travail WHERE 1=1';
@@ -50,13 +56,21 @@ final class SessionController
         }
         $posteId = (int) $poste['id'];
 
-        // 2) Employé
-        $stmt = $db->prepare('SELECT * FROM employe WHERE matricule = ?');
+        // 1bis) Anti-brute-force : trop d'échecs récents sur ce poste => 429.
+        if ($this->tropDeTentatives($posteId)) {
+            Response::error('Trop de tentatives, réessayez plus tard', 429);
+        }
+
+        // 2) Employé — colonnes explicites (jamais de fuite involontaire ; le
+        //    hash sert uniquement à la vérification locale ci-dessous).
+        $stmt = $db->prepare(
+            'SELECT id, matricule, nom, prenom, superieur_id, code_pin_hash FROM employe WHERE matricule = ?'
+        );
         $stmt->execute([$body['matricule']]);
         $employe = $stmt->fetch();
 
         // 3) Vérification du PIN
-        if (!$employe || !password_verify((string) $body['code_pin'], $employe['code_pin_hash'])) {
+        if (!$employe || !password_verify((string) $body['code_pin'], (string) $employe['code_pin_hash'])) {
             $this->logTentative($employe['id'] ?? null, $posteId, 'pin', 'echec', 'PIN erroné ou matricule inconnu');
             Response::error('Identifiants invalides', 401);
         }
@@ -138,7 +152,7 @@ final class SessionController
             // Simulation : on prend un employé ayant une empreinte enrôlée active et
             // autorisé sur ce poste. Aucun matching de gabarit n'est effectué.
             $stmt = $db->prepare(
-                'SELECT e.*
+                'SELECT e.id, e.matricule, e.nom, e.prenom, e.superieur_id
                  FROM employe e
                  JOIN employe_biometrie b ON b.employe_id = e.id AND b.type = \'empreinte\' AND b.actif = 1
                  JOIN autorisation_poste a ON a.employe_id = e.id AND a.poste_travail_id = ?
@@ -166,7 +180,9 @@ final class SessionController
                 );
             }
 
-            $stmt = $db->prepare('SELECT * FROM employe WHERE id = ?');
+            $stmt = $db->prepare(
+                'SELECT id, matricule, nom, prenom, superieur_id FROM employe WHERE id = ?'
+            );
             $stmt->execute([(int) $body['employe_id']]);
             $employe = $stmt->fetch();
             if (!$employe) {
@@ -262,10 +278,18 @@ final class SessionController
             Response::error("Le champ 'code_pin' est obligatoire", 422);
         }
 
+        $posteId = (int) $session['poste_travail_id'];
+
+        // Anti-brute-force : trop d'échecs récents sur ce poste => 429.
+        if ($this->tropDeTentatives($posteId)) {
+            Response::error('Trop de tentatives, réessayez plus tard', 429);
+        }
+
         $stmt = $db->prepare('SELECT code_pin_hash FROM employe WHERE id = ?');
         $stmt->execute([$session['employe_id']]);
         $hash = $stmt->fetchColumn();
         if (!$hash || !password_verify((string) $body['code_pin'], (string) $hash)) {
+            $this->logTentative((int) $session['employe_id'], $posteId, 'pin', 'echec', 'PIN erroné (reprise)');
             Response::error('PIN invalide', 401);
         }
 
@@ -331,6 +355,23 @@ final class SessionController
         }
 
         $body = Request::body();
+
+        // Un heartbeat doit porter au moins un signal d'activité exploitable.
+        $champsSignal = ['mouvements_souris', 'frappes_clavier', 'app_active', 'niveau_activite'];
+        $aSignal = false;
+        foreach ($champsSignal as $champ) {
+            if (array_key_exists($champ, $body) && $body[$champ] !== null && $body[$champ] !== '') {
+                $aSignal = true;
+                break;
+            }
+        }
+        if (!$aSignal) {
+            Response::error(
+                "Au moins un champ d'activité est requis (mouvements_souris, frappes_clavier, app_active ou niveau_activite)",
+                422
+            );
+        }
+
         Database::connection()->prepare(
             'INSERT INTO activite_echantillon (session_id, horodatage, mouvements_souris, frappes_clavier, app_active, niveau_activite)
              VALUES (?, ?, ?, ?, ?, ?)'
@@ -360,6 +401,23 @@ final class SessionController
         $sup = $stmt->fetchColumn();
 
         return $sup ? (int) $sup : null;
+    }
+
+    /**
+     * Anti-brute-force : vrai si le nombre d'échecs ('echec') enregistrés pour ce
+     * poste sur la fenêtre glissante dépasse le seuil autorisé. Requête préparée.
+     */
+    private function tropDeTentatives(int $posteId): bool
+    {
+        $depuis = date('Y-m-d H:i:s', time() - self::FENETRE_ECHECS_MINUTES * 60);
+
+        $stmt = Database::connection()->prepare(
+            "SELECT COUNT(*) FROM tentative_connexion
+             WHERE poste_travail_id = ? AND resultat = 'echec' AND horodatage >= ?"
+        );
+        $stmt->execute([$posteId, $depuis]);
+
+        return (int) $stmt->fetchColumn() >= self::MAX_ECHECS_PIN;
     }
 
     private function logTentative(?int $employeId, int $posteId, string $methode, string $resultat, ?string $raison): void

@@ -38,6 +38,13 @@ final class PointageController
             Response::error("Les champs 'employe_id' et 'methode' sont obligatoires", 422);
         }
 
+        // L'employé doit exister : sinon la contrainte FK lèverait une 500.
+        $check = Database::connection()->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $check->execute([(int) $body['employe_id']]);
+        if (!$check->fetchColumn()) {
+            Response::error("L'employé spécifié est introuvable", 422);
+        }
+
         $now = date('Y-m-d H:i:s');
         $stmt = Database::connection()->prepare(
             'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, statut)
@@ -53,7 +60,9 @@ final class PointageController
         ]);
 
         $id = (int) Database::connection()->lastInsertId();
-        $row = Database::connection()->query("SELECT * FROM pointage WHERE id = $id")->fetch();
+        $stmt = Database::connection()->prepare('SELECT * FROM pointage WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
 
         Response::json($row ?: [], 201);
     }

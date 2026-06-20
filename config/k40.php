@@ -3,30 +3,18 @@ declare(strict_types=1);
 
 /**
  * Configuration de la pointeuse ZKTeco K40 (terminal de pointage réseau).
- * Lit le .env.
+ * Lit le .env via Env::load.
  */
 
-$root = dirname(__DIR__);
-$envFile = $root . '/.env';
-$env = [];
+use MadMen\Core\Env;
 
-if (is_file($envFile)) {
-    foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#') {
-            continue;
-        }
-        [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
-        $env[trim($key)] = trim($value);
-    }
-}
+require_once dirname(__DIR__) . '/src/Core/Env.php';
 
-$bool = static fn (string $k, bool $def): bool =>
-    isset($env[$k]) ? in_array(strtolower($env[$k]), ['1', 'true', 'yes', 'on'], true) : $def;
+$env = Env::load();
 
 return [
     // Mettre à true une fois le K40 branché et configuré sur le réseau.
-    'enabled'        => $bool('K40_ENABLED', false),
+    'enabled'        => Env::bool('K40_ENABLED', false),
     'ip'             => $env['K40_IP'] ?? '192.168.1.201',
     'port'           => (int) ($env['K40_PORT'] ?? 4370),
     // Clé de communication du terminal (0 = aucune). Pour info/doc.
