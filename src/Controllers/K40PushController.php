@@ -1,0 +1,88 @@
+<?php
+declare(strict_types=1);
+
+namespace MadMen\Controllers;
+
+use MadMen\Core\Database;
+use MadMen\Core\K40;
+use MadMen\Core\K40Pointage;
+use MadMen\Core\Response;
+
+/**
+ * Mode PUSH / ADMS : c'est le terminal K40 qui se connecte à l'API (protocole
+ * « iclock »). Utile quand le serveur ne peut pas atteindre le K40 (réseau
+ * distant), car le terminal sort en HTTP vers le serveur.
+ *
+ * Le K40 doit être configuré : Menu → Comm → Cloud Server (ADMS) → adresse du
+ * serveur + port. Les réponses sont en text/plain (format attendu par ZKTeco).
+ */
+final class K40PushController
+{
+    /** GET /iclock/cdata — handshake initial du terminal. */
+    public function handshake(): void
+    {
+        $sn = isset($_GET['SN']) ? (string) $_GET['SN'] : '';
+        // Stamp=0 => le terminal renvoie tous les pointages non transmis.
+        $body = "GET OPTION FROM: {$sn}\n"
+            . "Stamp=0\n"
+            . "OpStamp=0\n"
+            . "ErrorDelay=30\n"
+            . "Delay=10\n"
+            . "TransTimes=00:00;14:05\n"
+            . "TransInterval=1\n"
+            . "TransFlag=1111000000\n"
+            . "TimeZone=0\n"
+            . "Realtime=1\n"
+            . "Encrypt=0\n";
+        Response::text($body);
+    }
+
+    /**
+     * POST /iclock/cdata — le terminal pousse ses données.
+     * table=ATTLOG : pointages. Corps = lignes « userid\ttimestamp\tstatus\t... ».
+     */
+    public function receive(): void
+    {
+        $table = isset($_GET['table']) ? strtoupper((string) $_GET['table']) : '';
+
+        if ($table !== 'ATTLOG') {
+            // OPERLOG / autres tables : acquittées sans traitement.
+            Response::text("OK\n");
+        }
+
+        $raw = file_get_contents('php://input') ?: '';
+        $cfg = K40::config();
+        $db = Database::connection();
+
+        $n = 0;
+        foreach (preg_split('/\r\n|\n|\r/', trim($raw)) as $line) {
+            if ($line === '') {
+                continue;
+            }
+            $parts = explode("\t", $line);
+            $userId = trim($parts[0] ?? '');
+            $timestamp = trim($parts[1] ?? '');
+            if ($userId === '' || $timestamp === '') {
+                continue;
+            }
+            K40Pointage::record($db, $userId, $timestamp, $cfg['heure_limite']);
+            $n++;
+        }
+
+        // ZKTeco attend « OK: <nombre de lignes traitées> ».
+        Response::text("OK: {$n}\n");
+    }
+
+    /** GET /iclock/getrequest — le terminal demande s'il y a des commandes. */
+    public function getrequest(): void
+    {
+        // Aucune commande à envoyer pour l'instant.
+        Response::text("OK\n");
+    }
+
+    /** POST /iclock/devicecmd — le terminal renvoie le résultat des commandes. */
+    public function devicecmd(): void
+    {
+        Response::text("OK\n");
+    }
+}

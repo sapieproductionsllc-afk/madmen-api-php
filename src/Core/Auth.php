@@ -29,6 +29,12 @@ final class Auth
             return; // Route publique (liste blanche).
         }
 
+        // Protocole ADMS/iclock du K40 : le terminal ne peut pas envoyer de clé.
+        // Ces routes sont authentifiées par le numéro de série (SN) du terminal.
+        if (str_starts_with($uri, '/iclock/')) {
+            return;
+        }
+
         $expected = Env::get('API_KEY');
         $provided = self::bearerToken();
 

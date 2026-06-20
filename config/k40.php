@@ -21,4 +21,7 @@ return [
     'password'       => (int) ($env['K40_PASSWORD'] ?? 0),
     // Heure limite d'arrivée : au-delà => retard.
     'heure_limite'   => $env['K40_HEURE_LIMITE'] ?? '08:15',
+    // Mode de communication : 'pull' (l'API interroge le K40 sur le LAN),
+    // 'push' (le K40 envoie vers l'API via /iclock — ADMS), ou 'both'.
+    'mode'           => strtolower((string) ($env['K40_MODE'] ?? 'pull')),
 ];

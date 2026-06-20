@@ -39,6 +39,7 @@ use MadMen\Controllers\ProductiviteController;
 use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
 use MadMen\Controllers\K40Controller;
+use MadMen\Controllers\K40PushController;
 
 // Sert les fichiers statiques existants tels quels (serveur intégré PHP).
 if (PHP_SAPI === 'cli-server') {
@@ -152,11 +153,17 @@ $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']
 $router->get('/api/productivite/classement', [ProductiviteController::class, 'classement']);
 $router->get('/api/productivite/{id}', [ProductiviteController::class, 'show']);
 
-// --- API : Pointeuse K40 (terminal de pointage) ---
+// --- API : Pointeuse K40 — mode PULL (l'API interroge le K40 sur le LAN) ---
 $router->get('/api/k40/status', [K40Controller::class, 'status']);
 $router->post('/api/k40/sync', [K40Controller::class, 'sync']);
 $router->get('/api/k40/users', [K40Controller::class, 'users']);
 $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
+
+// --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
+$router->get('/iclock/cdata', [K40PushController::class, 'handshake']);
+$router->post('/iclock/cdata', [K40PushController::class, 'receive']);
+$router->get('/iclock/getrequest', [K40PushController::class, 'getrequest']);
+$router->post('/iclock/devicecmd', [K40PushController::class, 'devicecmd']);
 
 // --- Authentification (C1) : appliquée AVANT le dispatch, après l'enregistrement
 // des routes. Liste blanche : /, /health, /docs, /openapi.yaml. Piloté par

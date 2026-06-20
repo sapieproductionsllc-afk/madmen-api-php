@@ -19,6 +19,15 @@ final class Response
         exit;
     }
 
+    /** Réponse texte brut (protocole ADMS/iclock du K40 attend du text/plain). */
+    public static function text(string $body, int $status = 200): void
+    {
+        http_response_code($status);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo $body;
+        exit;
+    }
+
     public static function error(string $message, int $status = 400): void
     {
         self::json(['error' => $message], $status);

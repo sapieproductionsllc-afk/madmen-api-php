@@ -14,6 +14,33 @@ Employé pointe sur le K40 (entrée/sortie)
 > Différent du **Live20R** (lecteur USB sur PC, via l'agent local). Le K40 est **réseau**
 > et **autonome** : il garde ses propres employés/empreintes/journaux.
 
+## Deux modes de communication (au choix via `K40_MODE`)
+
+| Mode | Qui contacte qui | Quand l'utiliser |
+|---|---|---|
+| **`pull`** (défaut) | L'API → le K40 (port 4370) | Serveur et K40 sur le **même réseau local** |
+| **`push`** (ADMS) | Le K40 → l'API (HTTP `/iclock`) | K40 **distant** : il sort vers le serveur, traverse le NAT |
+| **`both`** | Les deux | Souplesse maximale |
+
+### Mode PULL (LAN local)
+L'API interroge le terminal et récupère les pointages. Voir §4 ci-dessous
+(`/api/k40/sync`). Nécessite que le serveur **atteigne** le K40 sur le réseau.
+
+### Mode PUSH / ADMS (le K40 envoie)
+Le terminal est configuré pour **pousser** vers l'API (Menu → Comm → **Cloud Server /
+ADMS** → adresse + port du serveur). L'API expose le protocole `iclock` :
+
+| Route | Rôle |
+|---|---|
+| `GET /iclock/cdata` | Handshake (options + Stamp) |
+| `POST /iclock/cdata?table=ATTLOG` | Le terminal pousse les pointages → table `pointage` |
+| `GET /iclock/getrequest` | Le terminal demande des commandes |
+| `POST /iclock/devicecmd` | Résultat des commandes |
+
+Ces routes sont **publiques** (le terminal ne peut pas envoyer de clé API) ; elles sont
+identifiées par le **numéro de série (SN)** du terminal. La logique arrivée/départ est
+la même que le mode Pull (service partagé `K40Pointage`).
+
 ## 1. Brancher et configurer le K40
 
 1. Relier le K40 au réseau (câble Ethernet vers le switch/box).

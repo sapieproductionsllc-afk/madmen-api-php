@@ -5,8 +5,8 @@ namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
 use MadMen\Core\K40;
+use MadMen\Core\K40Pointage;
 use MadMen\Core\Response;
-use PDO;
 use Throwable;
 
 /**
@@ -156,9 +156,6 @@ final class K40Controller
         $lastSync = $db->query('SELECT last_sync_at FROM k40_state WHERE id = 1')->fetchColumn();
         $lastSync = $lastSync ?: '0000-00-00 00:00:00';
 
-        $appareilId = $this->appareilK40($db);
-
-        // Cache des employés par device_user_id (ou id).
         $recus = 0;
         $traites = 0;
         $ignores = 0;
@@ -176,15 +173,12 @@ final class K40Controller
                 $maxTs = $ts;
             }
 
-            $employe = $this->resolveEmploye($db, $devId);
-            if ($employe === null) {
+            if (K40Pointage::record($db, $devId, $ts, $cfg['heure_limite']) === 'traite') {
+                $traites++;
+            } else {
                 $ignores++;
                 $inconnus[$devId] = true;
-                continue;
             }
-
-            $this->enregistrerPointage($db, (int) $employe, $appareilId, $ts, $cfg['heure_limite']);
-            $traites++;
         }
 
         // Met à jour l'état.
@@ -202,69 +196,4 @@ final class K40Controller
         ];
     }
 
-    private function resolveEmploye(PDO $db, string $deviceUserId): ?int
-    {
-        if ($deviceUserId === '') {
-            return null;
-        }
-        // 1) par device_user_id explicite
-        $stmt = $db->prepare('SELECT id FROM employe WHERE device_user_id = ?');
-        $stmt->execute([$deviceUserId]);
-        $id = $stmt->fetchColumn();
-        if ($id) {
-            return (int) $id;
-        }
-        // 2) fallback : device_user_id = id de l'employé
-        if (ctype_digit($deviceUserId)) {
-            $stmt = $db->prepare('SELECT id FROM employe WHERE id = ?');
-            $stmt->execute([(int) $deviceUserId]);
-            $id = $stmt->fetchColumn();
-            if ($id) {
-                return (int) $id;
-            }
-        }
-        return null;
-    }
-
-    /** Enregistre un punch : 1er du jour = arrivée, dernier = départ. */
-    private function enregistrerPointage(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite): void
-    {
-        $date = substr($ts, 0, 10);
-
-        $stmt = $db->prepare(
-            'SELECT id, heure_entree FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?'
-        );
-        $stmt->execute([$employeId, $date, $appareilId]);
-        $pointage = $stmt->fetch();
-
-        if (!$pointage) {
-            $limite = $date . ' ' . $heureLimite . ':00';
-            $retard = max(0, (int) round((strtotime($ts) - strtotime($limite)) / 60));
-            $statut = $retard > 0 ? 'retard' : 'present';
-
-            $db->prepare(
-                'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, retard_minutes, statut)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
-            )->execute([$employeId, $appareilId, $date, $ts, 'empreinte', $retard, $statut]);
-        } else {
-            // Punch suivant le même jour => mise à jour de l'heure de sortie.
-            $db->prepare('UPDATE pointage SET heure_sortie = ? WHERE id = ?')
-               ->execute([$ts, (int) $pointage['id']]);
-        }
-    }
-
-    /** Trouve ou crée l'appareil représentant le K40. */
-    private function appareilK40(PDO $db): int
-    {
-        $id = $db->query("SELECT id FROM appareil_biometrique WHERE numero_serie = 'K40-POINTEUSE'")->fetchColumn();
-        if ($id) {
-            return (int) $id;
-        }
-        $db->prepare(
-            "INSERT INTO appareil_biometrique (nom, type, emplacement, numero_serie, statut)
-             VALUES ('K40 Pointeuse', 'empreinte', 'Entrée', 'K40-POINTEUSE', 'en_ligne')"
-        )->execute();
-
-        return (int) $db->lastInsertId();
-    }
 }
