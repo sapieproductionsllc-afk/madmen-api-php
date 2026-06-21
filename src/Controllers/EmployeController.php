@@ -10,10 +10,16 @@ use PDOException;
 
 final class EmployeController
 {
-    /** Colonnes renvoyées (jamais code_pin_hash). */
-    private const COLUMNS = 'id, matricule, nom, prenom, photo_url, poste_id, departement_id,
-        superieur_id, telephone, adresse, contact_urgence_nom, contact_urgence_tel,
-        salaire, statut, created_at';
+    /** Colonnes renvoyées (jamais code_pin_hash) + libellés joints poste/département. */
+    private const COLUMNS = 'e.id, e.matricule, e.nom, e.prenom, e.photo_url, e.poste_id, e.departement_id,
+        e.superieur_id, e.telephone, e.adresse, e.contact_urgence_nom, e.contact_urgence_tel,
+        e.salaire, e.statut, e.created_at,
+        p.intitule AS poste, d.nom AS departement';
+
+    private const JOINS = '
+        FROM employe e
+        LEFT JOIN poste p ON p.id = e.poste_id
+        LEFT JOIN departement d ON d.id = e.departement_id';
 
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
@@ -24,18 +30,18 @@ final class EmployeController
     public function index(): void
     {
         $db = Database::connection();
-        $sql = 'SELECT ' . self::COLUMNS . ' FROM employe WHERE 1=1';
+        $sql = 'SELECT ' . self::COLUMNS . self::JOINS . ' WHERE 1=1';
         $params = [];
 
         if (($dep = Request::query('departement_id')) !== null) {
-            $sql .= ' AND departement_id = :dep';
+            $sql .= ' AND e.departement_id = :dep';
             $params['dep'] = $dep;
         }
         if (($statut = Request::query('statut')) !== null) {
-            $sql .= ' AND statut = :statut';
+            $sql .= ' AND e.statut = :statut';
             $params['statut'] = $statut;
         }
-        $sql .= ' ORDER BY id DESC';
+        $sql .= ' ORDER BY e.id DESC';
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
@@ -129,7 +135,7 @@ final class EmployeController
 
     private function find(int $id): ?array
     {
-        $stmt = Database::connection()->prepare('SELECT ' . self::COLUMNS . ' FROM employe WHERE id = :id');
+        $stmt = Database::connection()->prepare('SELECT ' . self::COLUMNS . self::JOINS . ' WHERE e.id = :id');
         $stmt->execute(['id' => $id]);
 
         return $stmt->fetch() ?: null;

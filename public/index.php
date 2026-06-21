@@ -38,6 +38,8 @@ use MadMen\Controllers\DashboardController;
 use MadMen\Controllers\ProductiviteController;
 use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
+use MadMen\Controllers\MotifController;
+use MadMen\Controllers\PosteController;
 use MadMen\Controllers\K40Controller;
 use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
@@ -125,6 +127,13 @@ $router->delete('/api/employes/{id}', [EmployeController::class, 'destroy']);
 
 // --- API : Configuration (front) ---
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);
+$router->get('/api/config/postes', [ConfigController::class, 'postes']);
+
+// --- API : Motifs d'absence (sélecteur kiosque) ---
+$router->get('/api/motifs', [MotifController::class, 'index']);
+
+// --- API : Roster d'un poste (cache hors-ligne du kiosque) ---
+$router->get('/api/postes/{code}/roster', [PosteController::class, 'roster']);
 
 // --- API : Enrôlement biométrique ---
 $router->get('/api/employes/{id}/biometrie', [BiometrieController::class, 'index']);
@@ -138,6 +147,7 @@ $router->post('/api/pointages', [PointageController::class, 'store']);
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
 $router->post('/api/sessions/login', [SessionController::class, 'login']);
+$router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin']);
 $router->post('/api/sessions/identifier', [SessionController::class, 'identifier']);
 $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);

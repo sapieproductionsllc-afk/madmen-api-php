@@ -142,6 +142,75 @@ paths:
                   template_format: { type: string, example: ansi }
                   simulation: { type: boolean, example: true }
 
+  /api/config/postes:
+    get:
+      tags: [Configuration]
+      summary: Seuils de surveillance des postes (kiosque)
+      description: Délais de verrouillage / d'exigence de motif et période des heartbeats, consommés par l'app kiosque.
+      responses:
+        '200':
+          description: Seuils
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inactivite_lock_minutes: { type: integer, example: 7 }
+                  justification_minutes: { type: integer, example: 20 }
+                  heartbeat_seconds: { type: integer, example: 60 }
+
+  /api/motifs:
+    get:
+      tags: [Sessions]
+      summary: Lister les motifs d'absence (sélecteur kiosque)
+      responses:
+        '200':
+          description: Liste des motifs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer, example: 2 }
+                    libelle: { type: string, example: Réunion }
+
+  /api/postes/{code}/roster:
+    get:
+      tags: [Sessions]
+      summary: Roster d'un poste (cache hors-ligne du kiosque)
+      description: >
+        Poste + employés autorisés, avec le hash bcrypt du PIN pour la vérification
+        locale hors-ligne par l'app Tauri (machine de confiance).
+      parameters:
+        - { in: path, name: code, required: true, schema: { type: string }, example: PC-COMP-02 }
+      responses:
+        '200':
+          description: Roster du poste
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  poste:
+                    type: object
+                    properties:
+                      code: { type: string, example: PC-COMP-02 }
+                      nom: { type: string, example: "Poste Comptabilité 2" }
+                      statut: { type: string, example: libre }
+                  employes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, example: 3 }
+                        matricule: { type: string, example: EMP-0003 }
+                        nom: { type: string, example: Diallo }
+                        prenom: { type: string, example: Awa }
+                        code_pin_hash: { type: string, example: "$2y$10$..." }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/employes/{id}/biometrie:
     parameters:
       - { in: path, name: id, required: true, schema: { type: integer }, description: ID employé }
@@ -261,6 +330,32 @@ paths:
         '201': { description: Session ouverte }
         '401': { description: Identifiants invalides }
         '403': { description: Non autorisé sur ce poste }
+
+  /api/sessions/login-pin:
+    post:
+      tags: [Sessions]
+      summary: Ouvrir une session par PIN seul (kiosque)
+      description: >
+        Connexion sans matricule : le PIN identifie l'employé parmi ceux autorisés sur le
+        poste (vérification bcrypt des candidats). Mode utilisé par l'écran de verrouillage
+        du kiosque (design PIN-seul). L'empreinte reste un 2e facteur optionnel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code_pin, poste_travail_code]
+              properties:
+                code_pin: { type: string, example: "1002" }
+                poste_travail_code: { type: string, example: PC-COMP-02 }
+                empreinte_ok: { type: boolean, example: false }
+      responses:
+        '201': { description: "Session ouverte. Contient `session` et `employe`." }
+        '401': { description: PIN invalide }
+        '404': { description: Poste de travail inconnu }
+        '422': { description: Champ obligatoire manquant }
+        '429': { description: Trop de tentatives (anti-brute-force) }
 
   /api/sessions/identifier:
     post:
