@@ -79,6 +79,8 @@ final class K40Pointage
     private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite): void
     {
         $date = substr($ts, 0, 10);
+        // Horaire PROPRE à l'employé (ou global par défaut) : référence des calculs.
+        $horaire = Presence::horaire($db, $employeId);
 
         // 1) Type à bascule d'après le nombre de passages du jour.
         $stmt = $db->prepare('SELECT COUNT(*) FROM pointage_passage WHERE employe_id = ? AND date = ?');
@@ -96,7 +98,7 @@ final class K40Pointage
             'SELECT type, horodatage FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
         );
         $stmt->execute([$employeId, $date]);
-        $resume = self::resumeJournee($stmt->fetchAll());
+        $resume = self::resumeJournee($stmt->fetchAll(), $horaire);
 
         // 4) Upsert du résumé quotidien (table pointage).
         $stmt = $db->prepare('SELECT id FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?');
@@ -104,7 +106,7 @@ final class K40Pointage
         $pid = $stmt->fetchColumn();
 
         if (!$pid) {
-            $retard = Presence::retardMinutes($resume['entree']);
+            $retard = Presence::retardMinutes($resume['entree'], $horaire);
             $statut = $retard > 0 ? 'retard' : 'present';
             $db->prepare(
                 'INSERT INTO pointage
@@ -125,7 +127,7 @@ final class K40Pointage
         // 5) Une SORTIE (pause OU départ) verrouille le PC et met à jour les heures sup.
         if ($type === 'sortie') {
             self::verrouillerSessions($db, $employeId, $ts);
-            self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie']);
+            self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie'], $horaire);
         }
     }
 
@@ -137,7 +139,7 @@ final class K40Pointage
      * @param array<int,array{type:string,horodatage:string}> $passages
      * @return array{entree:string,sortie:string,present:int,pause:int,nb_pauses:int}
      */
-    private static function resumeJournee(array $passages): array
+    private static function resumeJournee(array $passages, ?array $horaire = null): array
     {
         $entree = $passages[0]['horodatage'];
         $sortie = $passages[count($passages) - 1]['horodatage'];
@@ -149,7 +151,7 @@ final class K40Pointage
             $a = $passages[$i];
             $b = $passages[$i + 1];
             if ($a['type'] === 'entree' && $b['type'] === 'sortie') {
-                $present += Presence::presenceMinutes($a['horodatage'], $b['horodatage']);
+                $present += Presence::presenceMinutes($a['horodatage'], $b['horodatage'], $horaire);
             } elseif ($a['type'] === 'sortie' && $b['type'] === 'entree') {
                 $pause += (int) max(0, (strtotime($b['horodatage']) - strtotime($a['horodatage'])) / 60);
                 $nbPauses++;
@@ -209,18 +211,21 @@ final class K40Pointage
      * Enregistre (upsert) les heures supplémentaires si le départ dépasse 18:00.
      * Clé unique : employe_id + date.
      */
-    private static function enregistrerHeuresSup(PDO $db, int $employeId, string $date, string $ts): void
+    private static function enregistrerHeuresSup(PDO $db, int $employeId, string $date, string $ts, ?array $horaire = null): void
     {
-        $dureeSup = Presence::heuresSupMinutes($ts);
+        $dureeSup = Presence::heuresSupMinutes($ts, $horaire);
         if ($dureeSup <= 0) {
             return;
         }
+
+        // Début des heures sup = heure de fin prévue de l'employé (ou 18:00 global).
+        $fin = ($horaire['fin'] ?? '18:00') . ':00';
 
         $db->prepare(
             "INSERT INTO heures_supplementaires
                 (employe_id, date, heure_debut, heure_fin, duree_minutes, source)
              VALUES (?, ?, ?, ?, ?, 'k40')
              ON DUPLICATE KEY UPDATE heure_fin = VALUES(heure_fin), duree_minutes = VALUES(duree_minutes)"
-        )->execute([$employeId, $date, $date . ' 18:00:00', $ts, $dureeSup]);
+        )->execute([$employeId, $date, $date . ' ' . $fin, $ts, $dureeSup]);
     }
 }

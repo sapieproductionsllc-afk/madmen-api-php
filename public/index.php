@@ -45,6 +45,7 @@ use MadMen\Controllers\MotifController;
 use MadMen\Controllers\PosteController;
 use MadMen\Controllers\AuthController;
 use MadMen\Controllers\HeuresSupController;
+use MadMen\Controllers\HoraireController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -142,6 +143,10 @@ $router->post('/api/employes', [EmployeController::class, 'store']);
 $router->get('/api/employes/{id}', [EmployeController::class, 'show']);
 $router->put('/api/employes/{id}', [EmployeController::class, 'update']);
 $router->delete('/api/employes/{id}', [EmployeController::class, 'destroy']);
+
+// --- API : Horaire de travail par employé (retard/présence/heures sup) ---
+$router->get('/api/employes/{id}/horaire', [HoraireController::class, 'show']);
+$router->put('/api/employes/{id}/horaire', [HoraireController::class, 'upsert']);
 
 // --- API : Configuration (front) ---
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);
