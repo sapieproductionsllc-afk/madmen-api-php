@@ -4,10 +4,8 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
-use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
-use PDO;
 
 final class SessionController
 {
@@ -127,7 +125,6 @@ final class SessionController
 
         $db->prepare("UPDATE poste_travail SET statut = 'occupe' WHERE id = ?")->execute([$posteId]);
         $this->logTentative($empId, $posteId, $empreinteOk ? 'empreinte' : 'pin', 'succes', null);
-        $this->enregistrerArriveePointage($db, $empId, $empreinteOk ? 'empreinte' : 'pin');
 
         Response::json([
             'message' => 'Session ouverte',
@@ -214,7 +211,6 @@ final class SessionController
 
         $db->prepare("UPDATE poste_travail SET statut = 'occupe' WHERE id = ?")->execute([$posteId]);
         $this->logTentative($empId, $posteId, $empreinteOk ? 'empreinte' : 'pin', 'succes', null);
-        $this->enregistrerArriveePointage($db, $empId, $empreinteOk ? 'empreinte' : 'pin');
 
         Response::json([
             'message' => 'Session ouverte',
@@ -343,7 +339,6 @@ final class SessionController
 
         $db->prepare("UPDATE poste_travail SET statut = 'occupe' WHERE id = ?")->execute([$posteId]);
         $this->logTentative($empId, $posteId, 'empreinte', 'succes', $simulation ? 'identification simulée' : null);
-        $this->enregistrerArriveePointage($db, $empId, 'empreinte');
 
         Response::json([
             'message'   => 'Session ouverte (empreinte)',
@@ -533,31 +528,6 @@ final class SessionController
      * verra statut='fermee' et reviendra à l'écran de login (déconnexion auto).
      * Libère aussi le poste de chaque session fermée. Requêtes préparées.
      */
-    /**
-     * Enregistre l'ARRIVÉE du jour (pointage) lors de la connexion au poste, avec
-     * calcul du RETARD selon l'horaire de l'employé. Idempotent : ne crée le
-     * pointage qu'au 1er login du jour (s'il n'existe pas déjà — via login OU K40).
-     */
-    private function enregistrerArriveePointage(PDO $db, int $employeId, string $methode): void
-    {
-        $date = date('Y-m-d');
-        $stmt = $db->prepare('SELECT id FROM pointage WHERE employe_id = ? AND date = ?');
-        $stmt->execute([$employeId, $date]);
-        if ($stmt->fetchColumn()) {
-            return; // déjà pointé aujourd'hui (connexion précédente ou K40)
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $horaire = Presence::horaire($db, $employeId);
-        $retard = Presence::retardMinutes($now, $horaire);
-        $statut = $retard > 0 ? 'retard' : 'present';
-
-        $db->prepare(
-            'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, retard_minutes, statut)
-             VALUES (?, NULL, ?, ?, ?, ?, ?)'
-        )->execute([$employeId, $date, $now, $methode, $retard, $statut]);
-    }
-
     private function fermerSessionsOuvertes(int $employeId): void
     {
         $db = Database::connection();
