@@ -89,36 +89,98 @@ final class K40Pointage
         return (int) $db->lastInsertId();
     }
 
-    /** 1er punch du jour = arrivée ; suivant = départ. */
+    /**
+     * Pointage à BASCULE (multi-pauses).
+     *
+     * Chaque doigt = un « passage ». Le type alterne selon le nombre de passages
+     * déjà enregistrés ce jour : 0,2,4… = entree (arrivée / retour) ; 1,3,5… =
+     * sortie (pause / départ). On recalcule ensuite le résumé du jour (arrivée,
+     * dernier mouvement, temps réellement présent, temps de pause, nb de pauses).
+     * Une sortie verrouille le PC et met à jour les heures sup.
+     *
+     * @param string $heureLimite conservé pour compat ; le retard est calculé par Presence.
+     */
     private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite): void
     {
         $date = substr($ts, 0, 10);
 
+        // 1) Type à bascule d'après le nombre de passages du jour.
+        $stmt = $db->prepare('SELECT COUNT(*) FROM pointage_passage WHERE employe_id = ? AND date = ?');
+        $stmt->execute([$employeId, $date]);
+        $type = (((int) $stmt->fetchColumn()) % 2 === 0) ? 'entree' : 'sortie';
+
+        // 2) Enregistre le passage.
+        $db->prepare(
+            'INSERT INTO pointage_passage (employe_id, date, type, horodatage, appareil_id, source)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$employeId, $date, $type, $ts, $appareilId, 'k40']);
+
+        // 3) Recharge tous les passages du jour et recalcule le résumé.
         $stmt = $db->prepare(
-            'SELECT id, heure_entree FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?'
+            'SELECT type, horodatage FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
         );
+        $stmt->execute([$employeId, $date]);
+        $resume = self::resumeJournee($stmt->fetchAll());
+
+        // 4) Upsert du résumé quotidien (table pointage).
+        $stmt = $db->prepare('SELECT id FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?');
         $stmt->execute([$employeId, $date, $appareilId]);
-        $pointage = $stmt->fetch();
+        $pid = $stmt->fetchColumn();
 
-        if (!$pointage) {
-            // Arrivée : le retard est calculé par Presence (référence 08:30),
-            // indépendamment de l'ancien paramètre $heureLimite.
-            $retard = Presence::retardMinutes($ts);
+        if (!$pid) {
+            $retard = Presence::retardMinutes($resume['entree']);
             $statut = $retard > 0 ? 'retard' : 'present';
-
             $db->prepare(
-                'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, retard_minutes, statut)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
-            )->execute([$employeId, $appareilId, $date, $ts, 'empreinte', $retard, $statut]);
+                'INSERT INTO pointage
+                    (employe_id, appareil_id, date, heure_entree, heure_sortie, methode,
+                     retard_minutes, temps_present_minutes, temps_pause_minutes, nb_pauses, statut)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $employeId, $appareilId, $date, $resume['entree'], $resume['sortie'], 'empreinte',
+                $retard, $resume['present'], $resume['pause'], $resume['nb_pauses'], $statut,
+            ]);
         } else {
-            // Départ : on met à jour l'heure de sortie...
-            $db->prepare('UPDATE pointage SET heure_sortie = ? WHERE id = ?')
-               ->execute([$ts, (int) $pointage['id']]);
-
-            // ...puis on verrouille le poste et on enregistre les heures sup.
-            self::verrouillerSessions($db, $employeId, $ts);
-            self::enregistrerHeuresSup($db, $employeId, $date, $ts);
+            $db->prepare(
+                'UPDATE pointage SET heure_sortie = ?, temps_present_minutes = ?,
+                    temps_pause_minutes = ?, nb_pauses = ? WHERE id = ?'
+            )->execute([$resume['sortie'], $resume['present'], $resume['pause'], $resume['nb_pauses'], (int) $pid]);
         }
+
+        // 5) Une SORTIE (pause OU départ) verrouille le PC et met à jour les heures sup.
+        if ($type === 'sortie') {
+            self::verrouillerSessions($db, $employeId, $ts);
+            self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie']);
+        }
+    }
+
+    /**
+     * Résumé d'une journée depuis les passages triés (alternance entree/sortie).
+     *  - présence = somme des intervalles entree->sortie (bornés 08:30–18:00, déjeuner exclu)
+     *  - pause    = somme des intervalles sortie->entree (temps réellement absent)
+     *
+     * @param array<int,array{type:string,horodatage:string}> $passages
+     * @return array{entree:string,sortie:string,present:int,pause:int,nb_pauses:int}
+     */
+    private static function resumeJournee(array $passages): array
+    {
+        $entree = $passages[0]['horodatage'];
+        $sortie = $passages[count($passages) - 1]['horodatage'];
+        $present = 0;
+        $pause = 0;
+        $nbPauses = 0;
+
+        for ($i = 0, $n = count($passages); $i + 1 < $n; $i++) {
+            $a = $passages[$i];
+            $b = $passages[$i + 1];
+            if ($a['type'] === 'entree' && $b['type'] === 'sortie') {
+                $present += Presence::presenceMinutes($a['horodatage'], $b['horodatage']);
+            } elseif ($a['type'] === 'sortie' && $b['type'] === 'entree') {
+                $pause += (int) max(0, (strtotime($b['horodatage']) - strtotime($a['horodatage'])) / 60);
+                $nbPauses++;
+            }
+        }
+
+        return ['entree' => $entree, 'sortie' => $sortie, 'present' => $present, 'pause' => $pause, 'nb_pauses' => $nbPauses];
     }
 
     /**

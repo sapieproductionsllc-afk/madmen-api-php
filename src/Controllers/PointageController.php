@@ -66,4 +66,23 @@ final class PointageController
 
         Response::json($row ?: [], 201);
     }
+
+    /** GET /api/pointages/{id}/passages — détail des allers-retours (entrée/sortie) du jour. */
+    public function passages(array $params): void
+    {
+        $db = Database::connection();
+        $stmt = $db->prepare('SELECT employe_id, date FROM pointage WHERE id = ?');
+        $stmt->execute([(int) $params['id']]);
+        $p = $stmt->fetch();
+        if (!$p) {
+            Response::error('Pointage introuvable', 404);
+        }
+        $stmt = $db->prepare(
+            'SELECT id, type, horodatage, source FROM pointage_passage
+             WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
+        );
+        $stmt->execute([$p['employe_id'], $p['date']]);
+
+        Response::json($stmt->fetchAll());
+    }
 }
