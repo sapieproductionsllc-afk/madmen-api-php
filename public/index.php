@@ -190,6 +190,9 @@ $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock'])
 $router->post('/api/sessions/{id}/logout', [SessionController::class, 'logout']);
 $router->post('/api/sessions/{id}/activite', [SessionController::class, 'activite']);
 
+// --- API : Journal d'activité du kiosque (surveillance, SANS impact paie) ---
+$router->get('/api/kiosque-activite', [SessionController::class, 'journal']);
+
 // --- API : Synchronisation montante (offline-first) ---
 $router->post('/api/sync', [SyncController::class, 'sync']);
 

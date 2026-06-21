@@ -470,7 +470,59 @@ final class SessionController
 
         $db->prepare("UPDATE poste_travail SET statut = 'libre' WHERE id = ?")->execute([$session['poste_travail_id']]);
 
+        // Journal de surveillance (table dédiée, SANS impact sur la paie).
+        $this->journaliserActivite($db, $session, $now, $totalSec, $activeSec, $inactiveSec);
+
         Response::json(['message' => 'Session fermée', 'session' => $this->find((int) $session['id'])]);
+    }
+
+    /**
+     * Consigne une session terminée dans le journal d'activité du kiosque
+     * (surveillance pure : temps actif/inactif + motifs). N'alimente PAS la paie.
+     */
+    private function journaliserActivite($db, array $session, string $now, int $totalSec, int $activeSec, int $inactiveSec): void
+    {
+        // Motifs des verrouillages de la session (justifications fournies à la reprise).
+        $stmt = $db->prepare(
+            'SELECT motif_id, justification, duree_minutes FROM incident_inactivite WHERE session_id = ?'
+        );
+        $stmt->execute([(int) $session['id']]);
+        $incidents = $stmt->fetchAll();
+        $motifs = array_values(array_filter($incidents, static fn ($i) => $i['motif_id'] !== null || $i['justification'] !== null));
+
+        $db->prepare(
+            'INSERT INTO kiosque_activite
+                (session_id, employe_id, poste_travail_id, date, connexion_at, deconnexion_at,
+                 temps_total_sec, temps_actif_sec, temps_inactif_sec, nb_verrouillages, motifs, methode_auth)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            (int) $session['id'], (int) $session['employe_id'], (int) $session['poste_travail_id'],
+            substr((string) $session['heure_debut'], 0, 10), $session['heure_debut'], $now,
+            $totalSec, $activeSec, $inactiveSec, count($incidents),
+            $motifs ? json_encode($motifs, JSON_UNESCAPED_UNICODE) : null,
+            $session['methode_auth'] ?? null,
+        ]);
+    }
+
+    /** GET /api/kiosque-activite?employe_id=&date= — journal d'activité du kiosque (surveillance). */
+    public function journal(): void
+    {
+        $sql = 'SELECT * FROM kiosque_activite WHERE 1=1';
+        $params = [];
+        if (($emp = Request::query('employe_id')) !== null) {
+            $sql .= ' AND employe_id = :emp';
+            $params['emp'] = $emp;
+        }
+        if (($date = Request::query('date')) !== null) {
+            $sql .= ' AND date = :date';
+            $params['date'] = $date;
+        }
+        $sql .= ' ORDER BY id DESC';
+
+        $stmt = Database::connection()->prepare($sql);
+        $stmt->execute($params);
+
+        Response::json($stmt->fetchAll());
     }
 
     /** Heartbeat de surveillance : enregistre un échantillon d'activité. */
