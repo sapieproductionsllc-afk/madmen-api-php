@@ -419,8 +419,8 @@ final class SessionController
         $stmt->execute([$session['id']]);
         $incident = $stmt->fetch();
 
+        $now = date('Y-m-d H:i:s');
         if ($incident) {
-            $now = date('Y-m-d H:i:s');
             $duree = (int) round((strtotime($now) - strtotime($incident['heure_verrouillage'])) / 60);
             $db->prepare(
                 "UPDATE incident_inactivite
@@ -428,6 +428,19 @@ final class SessionController
                  WHERE id = ?"
             )->execute([
                 $now, $duree, $body['motif_id'] ?? null, $body['justification'] ?? null, $incident['id'],
+            ]);
+        } elseif (!empty($body['motif_id']) || !empty($body['justification'])) {
+            // Aucun incident ouvert (verrouillage serveur manqué / hors-ligne / K40)
+            // MAIS un motif a été fourni : on l'enregistre quand même. Le motif ne
+            // doit JAMAIS être perdu (traçabilité « où il était / ce qu'il faisait »).
+            $db->prepare(
+                "INSERT INTO incident_inactivite
+                    (session_id, employe_id, poste_travail_id, heure_verrouillage, heure_reprise,
+                     duree_minutes, motif_id, justification, statut)
+                 VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'justifie')"
+            )->execute([
+                $session['id'], $session['employe_id'], $session['poste_travail_id'],
+                $now, $now, $body['motif_id'] ?? null, $body['justification'] ?? null,
             ]);
         }
 

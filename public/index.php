@@ -48,6 +48,7 @@ use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
 use MadMen\Controllers\PaieController;
 use MadMen\Controllers\JourFerieController;
+use MadMen\Controllers\IncidentController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -200,6 +201,9 @@ $router->get('/api/alertes', [AlerteController::class, 'index']);
 
 // --- API : Motifs d'absence ---
 $router->get('/api/motifs', [MotifController::class, 'index']);
+
+// --- API : Incidents d'inactivité (absences + motif/justification enregistrés) ---
+$router->get('/api/incidents', [IncidentController::class, 'index']);
 
 // --- API : Tableau de bord ---
 $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']);
