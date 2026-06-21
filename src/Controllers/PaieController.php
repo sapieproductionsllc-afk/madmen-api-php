@@ -143,9 +143,12 @@ final class PaieController
         // Montants (arrondis au FCFA entier ; valeurs unitaires à 2 décimales).
         $deductionRetard = $calculable ? round($totalRetardSec * $valeurSeconde) : null;
         $deductionAbsence = $calculable ? round($joursAbsent * $tempsJournalierSec * $valeurSeconde) : null;
-        $montantSup = $calculable ? round($totalSupSec * $valeurSeconde) : null;
+        // Heures sup : NON incluses dans le salaire. Enregistrées à part ; cette
+        // valeur est seulement INDICATIVE (ce que coûterait leur paiement) si
+        // l'employeur décide d'accorder un bonus. Elle n'entre PAS dans le net.
+        $heuresSupValeurIndic = $calculable ? round($totalSupSec * $valeurSeconde) : null;
         $salaireNet = $calculable
-            ? round($salaire - $deductionRetard - $deductionAbsence + $montantSup)
+            ? round($salaire - $deductionRetard - $deductionAbsence)
             : null;
 
         return [
@@ -177,7 +180,8 @@ final class PaieController
             'salaire_brut'                => round($salaire),
             'deduction_retard'            => $deductionRetard,
             'deduction_absence'           => $deductionAbsence,
-            'montant_heures_sup'          => $montantSup,
+            'heures_sup_incluses_net'      => false,
+            'heures_sup_valeur_indicative' => $heuresSupValeurIndic,
             'salaire_net'                 => $salaireNet,
             'detail'                      => array_values($detail),
         ];
