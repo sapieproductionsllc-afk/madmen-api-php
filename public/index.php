@@ -47,6 +47,7 @@ use MadMen\Controllers\AuthController;
 use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
 use MadMen\Controllers\PaieController;
+use MadMen\Controllers\JourFerieController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -152,6 +153,11 @@ $router->put('/api/employes/{id}/horaire', [HoraireController::class, 'upsert'])
 // --- API : Paie mensuelle (bulletin par employé + liste de paie) ---
 $router->get('/api/employes/{id}/paie', [PaieController::class, 'bulletin']);
 $router->get('/api/paie', [PaieController::class, 'liste']);
+
+// --- API : Jours fériés (journées payées, non comptées comme absence) ---
+$router->get('/api/jours-feries', [JourFerieController::class, 'index']);
+$router->post('/api/jours-feries', [JourFerieController::class, 'store']);
+$router->delete('/api/jours-feries/{id}', [JourFerieController::class, 'destroy']);
 
 // --- API : Configuration (front) ---
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);

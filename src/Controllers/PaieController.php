@@ -66,6 +66,8 @@ final class PaieController
 
         $horaire = Presence::horaire($db, $id);
         $jours = (string) $horaire['jours'];
+        // Jours fériés du mois : payés -> jamais comptés comme absence.
+        $feries = JourFerieController::map($db, $dateDebut, $dateFin);
 
         // Bases théoriques (mois complet).
         $tempsJournalierSec = Paie::tempsJournalierSecondes($horaire);
@@ -115,19 +117,30 @@ final class PaieController
             ];
         }
 
-        // Absences : jours travaillés sans pointage, jusqu'à aujourd'hui.
+        // Jours travaillés sans pointage (jusqu'à aujourd'hui) : férié = PAYÉ (pas
+        // d'absence, pas de déduction) ; sinon ABSENT (déduit).
         $joursAbsent = 0;
+        $joursFeries = 0;
         $cur = strtotime($dateDebut);
         $end = strtotime($borneAbsence);
         while ($cur <= $end) {
             $date = date('Y-m-d', $cur);
             if (Paie::estJourTravaille($date, $jours) && !isset($present[$date])) {
-                $joursAbsent++;
-                $detail[$date] = [
-                    'date' => $date, 'check_in' => null, 'check_out' => null,
-                    'worked_seconds' => 0, 'late_seconds' => 0, 'overtime_seconds' => 0,
-                    'status' => 'ABSENT',
-                ];
+                if (isset($feries[$date])) {
+                    $joursFeries++;
+                    $detail[$date] = [
+                        'date' => $date, 'check_in' => null, 'check_out' => null,
+                        'worked_seconds' => 0, 'late_seconds' => 0, 'overtime_seconds' => 0,
+                        'status' => 'FERIE', 'libelle' => $feries[$date],
+                    ];
+                } else {
+                    $joursAbsent++;
+                    $detail[$date] = [
+                        'date' => $date, 'check_in' => null, 'check_out' => null,
+                        'worked_seconds' => 0, 'late_seconds' => 0, 'overtime_seconds' => 0,
+                        'status' => 'ABSENT',
+                    ];
+                }
             }
             $cur = strtotime('+1 day', $cur);
         }
@@ -166,7 +179,8 @@ final class PaieController
             'valeur_heure'                => round($valeurSeconde * 3600, 2),
             'valeur_minute'               => round($valeurSeconde * 60, 2),
             'valeur_seconde'              => round($valeurSeconde, 4),
-            'jours_presents'              => count(array_filter($detail, static fn ($d) => $d['status'] !== 'ABSENT')),
+            'jours_presents'              => count(array_filter($detail, static fn ($d) => in_array($d['status'], ['PRESENT', 'LATE'], true))),
+            'jours_feries'                => $joursFeries,
             'jours_absents'               => $joursAbsent,
             'nb_retards'                  => $nbRetards,
             'temps_total_travaille_sec'   => $totalTravailleSec,
