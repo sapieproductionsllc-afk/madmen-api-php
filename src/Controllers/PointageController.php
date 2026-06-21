@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 
@@ -46,9 +47,12 @@ final class PointageController
         }
 
         $now = date('Y-m-d H:i:s');
+        // Retard calculé selon l'horaire de l'employé (cohérent avec K40 et login).
+        $horaire = Presence::horaire(Database::connection(), (int) $body['employe_id']);
+        $retard = Presence::retardMinutes($now, $horaire);
         $stmt = Database::connection()->prepare(
-            'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, statut)
-             VALUES (:employe_id, :appareil_id, :date, :heure_entree, :methode, :statut)'
+            'INSERT INTO pointage (employe_id, appareil_id, date, heure_entree, methode, retard_minutes, statut)
+             VALUES (:employe_id, :appareil_id, :date, :heure_entree, :methode, :retard, :statut)'
         );
         $stmt->execute([
             'employe_id'   => (int) $body['employe_id'],
@@ -56,7 +60,8 @@ final class PointageController
             'date'         => date('Y-m-d'),
             'heure_entree' => $now,
             'methode'      => $body['methode'],
-            'statut'       => 'present',
+            'retard'       => $retard,
+            'statut'       => $retard > 0 ? 'retard' : 'present',
         ]);
 
         $id = (int) Database::connection()->lastInsertId();
