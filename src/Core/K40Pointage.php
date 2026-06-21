@@ -31,14 +31,12 @@ final class K40Pointage
     }
 
     /**
-     * Résout un identifiant terminal vers un employé.
+     * Résout un identifiant terminal vers un employé — UNIQUEMENT via le mapping
+     * explicite `device_user_id` (renseigné quand l'employé a été poussé au K40).
      *
-     * Priorité au mapping explicite via `device_user_id`. Le repli sur
-     * `employe.id` (quand l'identifiant est numérique) est volontairement borné :
-     * il ne sert qu'à l'amorçage, AVANT que le mapping ne soit fait. Dès qu'au
-     * moins un employé possède un `device_user_id` renseigné, on considère le
-     * mapping en place et on n'autorise plus le repli numérique — sinon un
-     * terminal forgé pourrait viser n'importe quel employé par son id.
+     * STRICT : aucun repli sur `employe.id`. Un identifiant que le terminal ne
+     * « connaît » pas (non mappé) renvoie null → le pointage est IGNORÉ (jamais
+     * enregistré). Cela évite d'enregistrer des inconnus et tout risque d'usurpation.
      */
     public static function resolveEmploye(PDO $db, string $deviceUserId): ?int
     {
@@ -48,30 +46,8 @@ final class K40Pointage
         $stmt = $db->prepare('SELECT id FROM employe WHERE device_user_id = ?');
         $stmt->execute([$deviceUserId]);
         $id = $stmt->fetchColumn();
-        if ($id) {
-            return (int) $id;
-        }
-        // Repli numérique uniquement si AUCUN mapping device_user_id n'existe en base.
-        if (ctype_digit($deviceUserId) && !self::mappingExiste($db)) {
-            $stmt = $db->prepare('SELECT id FROM employe WHERE id = ?');
-            $stmt->execute([(int) $deviceUserId]);
-            $id = $stmt->fetchColumn();
-            if ($id) {
-                return (int) $id;
-            }
-        }
 
-        return null;
-    }
-
-    /** Indique si au moins un employé a un device_user_id renseigné (mapping fait). */
-    private static function mappingExiste(PDO $db): bool
-    {
-        $stmt = $db->query(
-            "SELECT 1 FROM employe WHERE device_user_id IS NOT NULL AND device_user_id <> '' LIMIT 1"
-        );
-
-        return $stmt->fetchColumn() !== false;
+        return $id ? (int) $id : null;
     }
 
     /** Trouve ou crée l'appareil représentant le K40. */
