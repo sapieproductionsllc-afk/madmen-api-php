@@ -92,7 +92,6 @@ final class PaieController
         $present = [];
         $totalTravailleSec = 0;
         $totalRetardSec = 0;
-        $totalSupSec = 0;
         $nbRetards = 0;
 
         foreach ($stmt->fetchAll() as $p) {
@@ -107,18 +106,16 @@ final class PaieController
             $worked = max(0, $workEnd - $workStart);
 
             if ($w === null) {
-                // Jour NON planifié (week-end/extra) : TOUT le temps = heures sup.
+                // Jour NON planifié : temps enregistré (trace) mais NON compté.
                 $normal = 0;
-                $sup = $worked;
                 $late = 0;
                 $status = 'EXTRA';
             } else {
-                // Jour planifié : NORMAL = temps DANS la fenêtre saisie ; tout ce qui
-                // est HORS fenêtre (avant le début OU après la fin) = heures sup.
+                // Jour planifié : NORMAL = temps DANS la fenêtre saisie ; le temps
+                // hors fenêtre n'est tout simplement pas compté (pas d'heures sup).
                 $winStart = strtotime("$date " . $w['debut']);
                 $winEnd = strtotime("$date " . $w['fin']);
                 $normal = max(0, min($workEnd, $winEnd) - max($workStart, $winStart));
-                $sup = max(0, $worked - $normal);
                 $late = max(0, (int) $p['retard_minutes']) * 60;
                 $status = $late > 0 ? 'LATE' : 'PRESENT';
                 if ($late > 0) {
@@ -128,17 +125,15 @@ final class PaieController
 
             $totalTravailleSec += $worked;
             $totalRetardSec += $late;
-            $totalSupSec += $sup;
 
             $detail[$date] = [
-                'date'             => $date,
-                'check_in'         => $p['heure_entree'],
-                'check_out'        => $p['heure_sortie'],
-                'worked_seconds'   => $worked,
-                'normal_seconds'   => $normal,
-                'late_seconds'     => $late,
-                'overtime_seconds' => $sup,
-                'status'           => $status,
+                'date'           => $date,
+                'check_in'       => $p['heure_entree'],
+                'check_out'      => $p['heure_sortie'],
+                'worked_seconds' => $worked,
+                'normal_seconds' => $normal,
+                'late_seconds'   => $late,
+                'status'         => $status,
             ];
         }
 
@@ -158,7 +153,7 @@ final class PaieController
                 $detail[$date] = [
                     'date' => $date, 'check_in' => null, 'check_out' => null,
                     'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
-                    'overtime_seconds' => 0, 'status' => 'FERIE', 'libelle' => $feries[$date],
+                    'status' => 'FERIE', 'libelle' => $feries[$date],
                 ];
             } else {
                 $joursAbsent++;
@@ -166,7 +161,7 @@ final class PaieController
                 $detail[$date] = [
                     'date' => $date, 'check_in' => null, 'check_out' => null,
                     'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
-                    'overtime_seconds' => 0, 'status' => 'ABSENT',
+                    'status' => 'ABSENT',
                 ];
             }
         }
@@ -183,10 +178,6 @@ final class PaieController
         $deductionRetard = $calculable ? round($totalRetardSec * $valeurSeconde) : null;
         // Absence déduite selon la durée RÉELLE de chaque jour manqué (sa fenêtre).
         $deductionAbsence = $calculable ? round($absenceSec * $valeurSeconde) : null;
-        // Heures sup : NON incluses dans le salaire. Enregistrées à part ; cette
-        // valeur est seulement INDICATIVE (ce que coûterait leur paiement) si
-        // l'employeur décide d'accorder un bonus. Elle n'entre PAS dans le net.
-        $heuresSupValeurIndic = $calculable ? round($totalSupSec * $valeurSeconde) : null;
         $salaireNet = $calculable
             ? round($salaire - $deductionRetard - $deductionAbsence)
             : null;
@@ -214,15 +205,11 @@ final class PaieController
             'temps_total_travaille'       => Paie::formatHM($totalTravailleSec),
             'temps_total_retard_sec'      => $totalRetardSec,
             'temps_total_retard'          => Paie::formatHM($totalRetardSec),
-            'temps_total_heures_sup_sec'  => $totalSupSec,
-            'temps_total_heures_sup'      => Paie::formatHM($totalSupSec),
             'paie_calculable'             => $calculable,
             'avertissement'               => $avertissement,
             'salaire_brut'                => round($salaire),
             'deduction_retard'            => $deductionRetard,
             'deduction_absence'           => $deductionAbsence,
-            'heures_sup_incluses_net'      => false,
-            'heures_sup_valeur_indicative' => $heuresSupValeurIndic,
             'salaire_net'                 => $salaireNet,
             'detail'                      => array_values($detail),
         ];
