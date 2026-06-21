@@ -95,14 +95,18 @@ final class PaieController
                 continue; // pointage sans entrée exploitable -> jour traité comme absent
             }
             $present[$date] = true;
+            $estOuvre = Paie::estJourTravaille($date, $jours);
             $worked = Paie::tempsTravailleSecondes($p['heure_entree'], $p['heure_sortie']);
-            $late = max(0, (int) $p['retard_minutes']) * 60;
-            $sup = Paie::heuresSupSecondes($worked, $tempsJournalierSec);
+            $late = $estOuvre ? max(0, (int) $p['retard_minutes']) * 60 : 0;
+            // Jour planifié : heures sup = dépassement de la journée prévue.
+            // Jour NON planifié (week-end/extra) : TOUT le temps est de l'heure sup
+            // (travail « en plus »), montré à part, non payé d'office.
+            $sup = $estOuvre ? Paie::heuresSupSecondes($worked, $tempsJournalierSec) : $worked;
 
             $totalTravailleSec += $worked;
             $totalRetardSec += $late;
             $totalSupSec += $sup;
-            if ($late > 0) {
+            if ($estOuvre && $late > 0) {
                 $nbRetards++;
             }
 
@@ -113,7 +117,7 @@ final class PaieController
                 'worked_seconds'  => $worked,
                 'late_seconds'    => $late,
                 'overtime_seconds' => $sup,
-                'status'          => $late > 0 ? 'LATE' : 'PRESENT',
+                'status'          => !$estOuvre ? 'EXTRA' : ($late > 0 ? 'LATE' : 'PRESENT'),
             ];
         }
 
@@ -181,6 +185,7 @@ final class PaieController
             'valeur_seconde'              => round($valeurSeconde, 4),
             'jours_presents'              => count(array_filter($detail, static fn ($d) => in_array($d['status'], ['PRESENT', 'LATE'], true))),
             'jours_feries'                => $joursFeries,
+            'jours_extra'                 => count(array_filter($detail, static fn ($d) => $d['status'] === 'EXTRA')),
             'jours_absents'               => $joursAbsent,
             'nb_retards'                  => $nbRetards,
             'temps_total_travaille_sec'   => $totalTravailleSec,
