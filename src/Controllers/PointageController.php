@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\K40Pointage;
 use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
@@ -89,5 +90,69 @@ final class PointageController
         $stmt->execute([$p['employe_id'], $p['date']]);
 
         Response::json($stmt->fetchAll());
+    }
+
+    /**
+     * POST /api/employes/{id}/pointage-manuel — saisie MANUELLE d'un pointage par
+     * l'admin (secours quand le K40 est injoignable). Body : { horodatage:
+     * 'YYYY-MM-DD HH:MM[:SS]', type?: 'entree'|'sortie' }. Sans 'type', la bascule
+     * automatique s'applique (1er passage du jour = arrivée, 2e = départ, ...), si
+     * bien qu'un pointage K40 ultérieur sera correctement pris comme un DÉPART.
+     */
+    public function manuel(array $params): void
+    {
+        $db = Database::connection();
+        $id = (int) $params['id'];
+
+        $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $check->execute([$id]);
+        if (!$check->fetchColumn()) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $body = Request::body();
+        $ts = $this->horodatageValide($body['horodatage'] ?? null);
+        if ($ts === null) {
+            Response::error("'horodatage' requis (format 'YYYY-MM-DD HH:MM' ou '...:SS')", 422);
+        }
+        $type = $body['type'] ?? null;
+        if ($type !== null && !in_array($type, ['entree', 'sortie'], true)) {
+            Response::error("'type' doit valoir 'entree' ou 'sortie' (ou être omis pour la bascule auto)", 422);
+        }
+
+        K40Pointage::recordManuel($db, $id, $ts, $type);
+
+        // Résumé du jour : passages (avec source) + ligne pointage recalculée.
+        $date = substr($ts, 0, 10);
+        $stmt = $db->prepare(
+            'SELECT id, type, horodatage, source FROM pointage_passage
+             WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
+        );
+        $stmt->execute([$id, $date]);
+        $passages = $stmt->fetchAll();
+
+        $stmt = $db->prepare('SELECT * FROM pointage WHERE employe_id = ? AND date = ? ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$id, $date]);
+
+        Response::json([
+            'message'   => 'Pointage manuel enregistré',
+            'pointage'  => $stmt->fetch() ?: null,
+            'passages'  => $passages,
+        ], 201);
+    }
+
+    /** Valide un horodatage 'YYYY-MM-DD HH:MM[:SS]' -> 'YYYY-MM-DD HH:MM:SS' ; null si invalide. */
+    private function horodatageValide($v): ?string
+    {
+        if (!is_string($v)) {
+            return null;
+        }
+        $v = trim($v);
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/', $v) !== 1) {
+            return null;
+        }
+        $t = strtotime($v);
+
+        return $t === false ? null : date('Y-m-d H:i:s', $t);
     }
 }

@@ -176,6 +176,7 @@ $router->delete('/api/biometrie/{id}', [BiometrieController::class, 'destroy']);
 $router->get('/api/pointages', [PointageController::class, 'index']);
 $router->post('/api/pointages', [PointageController::class, 'store']);
 $router->get('/api/pointages/{id}/passages', [PointageController::class, 'passages']);
+$router->post('/api/employes/{id}/pointage-manuel', [PointageController::class, 'manuel']);
 
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);

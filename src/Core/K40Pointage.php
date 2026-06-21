@@ -31,6 +31,19 @@ final class K40Pointage
     }
 
     /**
+     * Pointage MANUEL (saisi par l'admin quand le K40 est injoignable). Même logique
+     * de BASCULE et même appareil logique que le K40 : un pointage manuel compte
+     * comme un passage, donc le pointage K40 suivant enchaîne correctement (ex.
+     * arrivée saisie à la main -> le doigt sur le K40 ensuite = DÉPART, pas arrivée).
+     *
+     * @param string|null $type 'entree'|'sortie' pour forcer ; null = bascule auto.
+     */
+    public static function recordManuel(PDO $db, int $employeId, string $ts, ?string $type = null): void
+    {
+        self::enregistrer($db, $employeId, self::appareilId($db), $ts, '', 'manuel', $type);
+    }
+
+    /**
      * Résout un identifiant terminal vers un employé — UNIQUEMENT via le mapping
      * explicite `device_user_id` (renseigné quand l'employé a été poussé au K40).
      *
@@ -76,7 +89,7 @@ final class K40Pointage
      *
      * @param string $heureLimite conservé pour compat ; le retard est calculé par Presence.
      */
-    private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite): void
+    private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite, string $source = 'k40', ?string $forceType = null): void
     {
         $date = substr($ts, 0, 10);
         // Horaire PROPRE à l'employé (ou global par défaut) : référence des calculs.
@@ -84,16 +97,17 @@ final class K40Pointage
         // Fenêtre du JOUR (emploi du temps par jour) pour le retard ; null = repos.
         $fenetre = Presence::fenetreJour(Presence::planning($db, $employeId), $date);
 
-        // 1) Type à bascule d'après le nombre de passages du jour.
+        // 1) Type : forcé (saisie manuelle explicite) sinon à BASCULE d'après le
+        //    nombre de passages du jour (0,2,4...=entrée ; 1,3,5...=sortie).
         $stmt = $db->prepare('SELECT COUNT(*) FROM pointage_passage WHERE employe_id = ? AND date = ?');
         $stmt->execute([$employeId, $date]);
-        $type = (((int) $stmt->fetchColumn()) % 2 === 0) ? 'entree' : 'sortie';
+        $type = $forceType ?? ((((int) $stmt->fetchColumn()) % 2 === 0) ? 'entree' : 'sortie');
 
-        // 2) Enregistre le passage.
+        // 2) Enregistre le passage (source : 'k40' ou 'manuel').
         $db->prepare(
             'INSERT INTO pointage_passage (employe_id, date, type, horodatage, appareil_id, source)
              VALUES (?, ?, ?, ?, ?, ?)'
-        )->execute([$employeId, $date, $type, $ts, $appareilId, 'k40']);
+        )->execute([$employeId, $date, $type, $ts, $appareilId, $source]);
 
         // 3) Recharge tous les passages du jour et recalcule le résumé.
         $stmt = $db->prepare(
