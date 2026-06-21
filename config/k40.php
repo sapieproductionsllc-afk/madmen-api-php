@@ -32,4 +32,13 @@ return [
         'trim',
         explode(',', (string) ($env['K40_PUSH_SN'] ?? ''))
     ), static fn (string $sn): bool => $sn !== '')),
+
+    // --- Pont Python+pyzk pour l'écriture des gabarits d'empreinte ---
+    // La lib PHP rats/zkteco ne sait pas écrire les empreintes (setFingerprint
+    // cassé) ; l'upload de gabarit passe par un script Python (pyzk).
+    'python_bin'     => $env['K40_PYTHON_BIN'] ?? 'python',
+    'push_script'    => $env['K40_PUSH_SCRIPT']
+        ?? (dirname(__DIR__) . '/scripts/k40_push_template.py'),
+    // Timeout dur (s) du sous-processus Python côté PHP.
+    'python_timeout' => (int) ($env['K40_PYTHON_TIMEOUT'] ?? 60),
 ];

@@ -187,6 +187,7 @@ $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
 $router->post('/api/k40/push-all', [K40Controller::class, 'pushAll']);
 $router->delete('/api/k40/users/{id}', [K40Controller::class, 'removeUser']);
 $router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
+$router->post('/api/k40/push-fingerprints', [K40Controller::class, 'pushFingerprints']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode

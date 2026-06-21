@@ -3,9 +3,11 @@ declare(strict_types=1);
 
 namespace MadMen\Controllers;
 
+use MadMen\Core\Crypto;
 use MadMen\Core\Database;
 use MadMen\Core\K40;
 use MadMen\Core\K40Pointage;
+use MadMen\Core\K40Template;
 use MadMen\Core\Response;
 use Throwable;
 
@@ -160,6 +162,68 @@ final class K40Controller
         }
 
         Response::json(['message' => 'Employés poussés au K40', 'count' => $pushed, 'total' => count($emps)]);
+    }
+
+    /**
+     * POST /api/k40/push-fingerprints — pousse TOUS les gabarits actifs au K40
+     * en UNE session (déchiffrement PHP -> pont Python). Calqué sur pushAll.
+     */
+    public function pushFingerprints(): void
+    {
+        @set_time_limit(0);
+
+        $db = Database::connection();
+        $rows = $db->query(
+            "SELECT b.employe_id, b.doigt, b.template,
+                    e.nom, e.prenom, e.device_user_id
+             FROM employe_biometrie b
+             JOIN employe e ON e.id = b.employe_id
+             WHERE b.type = 'empreinte' AND b.actif = 1 AND e.statut = 'actif'
+             ORDER BY b.employe_id, b.id"
+        )->fetchAll();
+
+        $users = [];
+        $skipped = 0;
+        foreach ($rows as $r) {
+            $eid = (int) $r['employe_id'];
+            $blob = is_resource($r['template']) ? stream_get_contents($r['template']) : (string) $r['template'];
+            $raw = Crypto::decrypt($blob);
+            if (strlen($raw) < 100) { // decrypt échoué ou seed bidon
+                $skipped++;
+                continue;
+            }
+            if (!isset($users[$eid])) {
+                $users[$eid] = [
+                    'uid'     => $eid,
+                    'user_id' => (string) ($r['device_user_id'] ?: $eid),
+                    'name'    => mb_substr($r['prenom'] . ' ' . $r['nom'], 0, 24),
+                    'fingers' => [],
+                ];
+            }
+            $users[$eid]['fingers'][] = [
+                'fid'          => K40Template::fid($r['doigt']),
+                'template_b64' => base64_encode($raw),
+            ];
+        }
+
+        if (!$users) {
+            Response::json(['message' => 'Aucune empreinte exploitable', 'skipped' => $skipped, 'synced' => 0]);
+        }
+
+        try {
+            $res = K40Template::push(array_values($users));
+        } catch (Throwable $e) {
+            Response::error($this->messagePublic('Push des empreintes K40 échoué', $e), 502);
+        }
+
+        Response::json([
+            'message' => 'Empreintes poussées au K40',
+            'users'   => count($users),
+            'synced'  => $res['synced'] ?? 0,
+            'failed'  => $res['failed'] ?? 0,
+            'skipped' => $skipped,
+            'results' => $res['results'] ?? [],
+        ]);
     }
 
     // ----------------------------------------------------------------- sécurité

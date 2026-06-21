@@ -92,14 +92,66 @@ final class BiometrieController
         // doigt sur le K40, enrôler l'empreinte DIRECTEMENT sur le terminal.
         $this->pushK40Identite($employeId);
 
+        // Pour une empreinte : on pousse AUSSI le gabarit au K40 (identité d'abord,
+        // car save_user_template exige un User existant). Best-effort, non bloquant.
+        // On réutilise $raw (gabarit EN CLAIR déjà en mémoire) -> pas de re-déchiffrement.
+        $note = 'Identité synchronisée au K40 si disponible.';
+        if ($type === 'empreinte' && isset($raw) && is_string($raw)) {
+            $note = $this->pushK40Template($employeId, $doigt, $raw)
+                ? 'Identité + empreinte synchronisées au K40.'
+                : 'Identité synchronisée ; empreinte non poussée (K40 indisponible, rattrapage via /api/k40/push-fingerprints).';
+        }
+
         Response::json([
-            'message' => 'Biométrie enrôlée',
-            'id'      => $id,
-            'type'    => $type,
-            'doigt'   => $doigt,
+            'message'    => 'Biométrie enrôlée',
+            'id'         => $id,
+            'type'       => $type,
+            'doigt'      => $doigt,
             'badge_rfid' => $badge,
-            'note_k40' => 'Identité synchronisée au K40 si disponible ; enrôler l\'empreinte directement sur le terminal pour le pointage.',
+            'note_k40'   => $note,
         ], 201);
+    }
+
+    /**
+     * Pousse le gabarit d'empreinte vers le K40 via le pont Python (pyzk).
+     * Best-effort, strictement non bloquant. Retourne true si l'upload est confirmé.
+     */
+    private function pushK40Template(int $employeId, ?string $doigt, string $raw): bool
+    {
+        @set_time_limit(0);
+        try {
+            // Garde-fou : gabarit vide (decrypt échoué) ou trop petit (seed bidon).
+            if (strlen($raw) < 100) {
+                error_log('Push K40 gabarit employé #' . $employeId . ' ignoré : gabarit trop petit (' . strlen($raw) . ' o).');
+                return false;
+            }
+
+            $stmt = Database::connection()->prepare('SELECT nom, prenom, device_user_id FROM employe WHERE id = ?');
+            $stmt->execute([$employeId]);
+            $emp = $stmt->fetch();
+            if (!$emp) {
+                return false;
+            }
+
+            $deviceUserId = $emp['device_user_id'] ?: (string) $employeId;
+            $name = mb_substr($emp['prenom'] . ' ' . $emp['nom'], 0, 24);
+            $fid  = \MadMen\Core\K40Template::fid($doigt);
+
+            $res = \MadMen\Core\K40Template::push([[
+                'uid'     => $employeId,
+                'user_id' => (string) $deviceUserId,
+                'name'    => $name,
+                'fingers' => [[
+                    'fid'          => $fid,
+                    'template_b64' => base64_encode($raw),
+                ]],
+            ]]);
+
+            return !empty($res['ok']);
+        } catch (Throwable $e) {
+            error_log('Push K40 gabarit (employé #' . $employeId . ') ignoré : ' . $e->getMessage());
+            return false;
+        }
     }
 
     /** Pousse l'identité de l'employé vers le K40 (best-effort, silencieux). */
@@ -125,16 +177,43 @@ final class BiometrieController
         }
     }
 
-    /** Supprimer une biométrie enrôlée. */
+    /** Supprimer une biométrie enrôlée. Propage au K40 (best-effort) si empreinte. */
     public function destroy(array $params): void
     {
-        $stmt = Database::connection()->prepare('DELETE FROM employe_biometrie WHERE id = ?');
-        $stmt->execute([(int) $params['id']]);
+        $id = (int) $params['id'];
+        $db = Database::connection();
 
-        if ($stmt->rowCount() === 0) {
+        // Lire la ligne AVANT suppression (employe_id + doigt + type).
+        $stmt = $db->prepare('SELECT employe_id, type, doigt FROM employe_biometrie WHERE id = ?');
+        $stmt->execute([$id]);
+        $bio = $stmt->fetch();
+        if (!$bio) {
             Response::error('Biométrie introuvable', 404);
         }
+
+        $db->prepare('DELETE FROM employe_biometrie WHERE id = ?')->execute([$id]);
+
+        if ($bio['type'] === 'empreinte') {
+            $this->removeK40Template((int) $bio['employe_id'], $bio['doigt']);
+        }
+
         Response::noContent();
+    }
+
+    /** Retire le gabarit (doigt précis) du K40 (best-effort, non bloquant). */
+    private function removeK40Template(int $employeId, ?string $doigt): void
+    {
+        @set_time_limit(0);
+        try {
+            $fid = \MadMen\Core\K40Template::fid($doigt);
+            \MadMen\Core\K40Template::remove([[
+                'uid'     => $employeId,
+                'user_id' => (string) $employeId,
+                'fingers' => [['fid' => $fid]],
+            ]]);
+        } catch (Throwable $e) {
+            error_log('Retrait K40 gabarit (employé #' . $employeId . ', doigt ' . (string) $doigt . ') ignoré : ' . $e->getMessage());
+        }
     }
 
     private function assertEmploye(int $id): void
