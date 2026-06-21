@@ -135,6 +135,10 @@ final class Auth
         if ($method !== 'GET' && preg_match('#^/api/(employes|biometrie|k40|config)#', $uri) === 1) {
             return 4; // écritures de gestion réservées au super_admin
         }
+        // Paie : donnée sensible (salaires) -> directeur minimum, jamais superviseur.
+        if ($method === 'GET' && preg_match('#^/api/(paie|employes/\d+/paie)$#', $uri) === 1) {
+            return 3;
+        }
         if ($method === 'GET' && str_starts_with($uri, '/api/')) {
             return 2; // consultation : superviseur et au-dessus
         }

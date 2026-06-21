@@ -89,10 +89,10 @@ final class PaieController
 
         foreach ($stmt->fetchAll() as $p) {
             $date = (string) $p['date'];
-            $present[$date] = true;
             if (empty($p['heure_entree'])) {
-                continue;
+                continue; // pointage sans entrée exploitable -> jour traité comme absent
             }
+            $present[$date] = true;
             $worked = Paie::tempsTravailleSecondes($p['heure_entree'], $p['heure_sortie']);
             $late = max(0, (int) $p['retard_minutes']) * 60;
             $sup = Paie::heuresSupSecondes($worked, $tempsJournalierSec);
@@ -133,11 +133,20 @@ final class PaieController
         }
         ksort($detail);
 
+        // Garde-fou : si le temps théorique ou le salaire est invalide, la valeur
+        // horaire serait nulle -> on NE produit PAS de montants (sinon l'employé
+        // serait silencieusement payé plein sans déductions). On signale au lieu.
+        $calculable = $tempsTheoriqueMensuelSec > 0 && $salaire > 0;
+        $avertissement = $calculable ? null
+            : "Paie incalculable : horaire (temps théorique nul) ou salaire de l'employé invalide.";
+
         // Montants (arrondis au FCFA entier ; valeurs unitaires à 2 décimales).
-        $deductionRetard = round($totalRetardSec * $valeurSeconde);
-        $deductionAbsence = round($joursAbsent * $tempsJournalierSec * $valeurSeconde);
-        $montantSup = round($totalSupSec * $valeurSeconde);
-        $salaireNet = round($salaire - $deductionRetard - $deductionAbsence + $montantSup);
+        $deductionRetard = $calculable ? round($totalRetardSec * $valeurSeconde) : null;
+        $deductionAbsence = $calculable ? round($joursAbsent * $tempsJournalierSec * $valeurSeconde) : null;
+        $montantSup = $calculable ? round($totalSupSec * $valeurSeconde) : null;
+        $salaireNet = $calculable
+            ? round($salaire - $deductionRetard - $deductionAbsence + $montantSup)
+            : null;
 
         return [
             'employe' => [
@@ -163,6 +172,8 @@ final class PaieController
             'temps_total_retard'          => Paie::formatHM($totalRetardSec),
             'temps_total_heures_sup_sec'  => $totalSupSec,
             'temps_total_heures_sup'      => Paie::formatHM($totalSupSec),
+            'paie_calculable'             => $calculable,
+            'avertissement'               => $avertissement,
             'salaire_brut'                => round($salaire),
             'deduction_retard'            => $deductionRetard,
             'deduction_absence'           => $deductionAbsence,
@@ -172,10 +183,10 @@ final class PaieController
         ];
     }
 
-    /** Valide et normalise le mois (YYYY-MM) ; défaut = mois courant. */
-    private function moisValide(?string $mois): string
+    /** Valide et normalise le mois (YYYY-MM) ; défaut = mois courant. Tolère un type non-string (?mois[]=) -> défaut. */
+    private function moisValide($mois): string
     {
-        $mois = $mois ?? date('Y-m');
+        $mois = is_string($mois) ? $mois : date('Y-m');
         if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $mois) !== 1) {
             Response::error("Paramètre 'mois' invalide (format attendu : YYYY-MM)", 422);
         }
