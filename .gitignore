@@ -5,3 +5,7 @@
 .idea/
 .vscode/
 Thumbs.db
+
+# Pièces jointes téléversées (binaires, hors VCS)
+storage/uploads/*
+!storage/uploads/.gitkeep

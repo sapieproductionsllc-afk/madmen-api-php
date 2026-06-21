@@ -119,6 +119,10 @@ final class Auth
         if ($uri === '/api/auth/me') {
             return 1;
         }
+        // Messagerie (conversations, messages, pièces jointes) : tout employé authentifié.
+        if (preg_match('#^/api/(conversations|messages|fichiers)#', $uri) === 1) {
+            return 1;
+        }
         // Le kiosque/poste (rang employe) doit pouvoir poller sa propre session
         // pour détecter un verrouillage forcé (statut passé à 'verrouillee').
         if ($method === 'GET' && preg_match('#^/api/sessions/\d+$#', $uri) === 1) {

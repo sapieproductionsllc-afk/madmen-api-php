@@ -47,6 +47,8 @@ use MadMen\Controllers\AuthController;
 use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
 use MadMen\Controllers\PaieController;
+use MadMen\Controllers\MessagerieController;
+use MadMen\Controllers\FichierController;
 use MadMen\Controllers\JourFerieController;
 use MadMen\Controllers\IncidentController;
 
@@ -195,6 +197,21 @@ $router->get('/api/kiosque-activite', [SessionController::class, 'journal']);
 
 // --- API : Synchronisation montante (offline-first) ---
 $router->post('/api/sync', [SyncController::class, 'sync']);
+
+// --- API : Messagerie (communication interne : fils directs + groupes) ---
+$router->get('/api/conversations', [MessagerieController::class, 'conversations']);
+$router->post('/api/conversations', [MessagerieController::class, 'creer']);
+$router->get('/api/conversations/{id}', [MessagerieController::class, 'show']);
+$router->post('/api/conversations/{id}/membres', [MessagerieController::class, 'ajouterMembres']);
+$router->delete('/api/conversations/{id}/membres/{employeId}', [MessagerieController::class, 'retirerMembre']);
+$router->get('/api/conversations/{id}/messages', [MessagerieController::class, 'messages']);
+$router->post('/api/conversations/{id}/messages', [MessagerieController::class, 'envoyer']);
+$router->post('/api/conversations/{id}/lu', [MessagerieController::class, 'marquerLu']);
+$router->delete('/api/messages/{id}', [MessagerieController::class, 'supprimerMessage']);
+
+// --- API : Pièces jointes (images, audio/vocaux, PDF, documents) ---
+$router->post('/api/fichiers', [FichierController::class, 'upload']);
+$router->get('/api/fichiers/{id}', [FichierController::class, 'download']);
 
 // --- API : Heures supplémentaires ---
 $router->get('/api/heures-supplementaires', [HeuresSupController::class, 'index']);
