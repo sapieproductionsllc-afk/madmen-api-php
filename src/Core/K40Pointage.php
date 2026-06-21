@@ -103,11 +103,23 @@ final class K40Pointage
         $stmt->execute([$employeId, $date]);
         $type = $forceType ?? ((((int) $stmt->fetchColumn()) % 2 === 0) ? 'entree' : 'sortie');
 
-        // 2) Enregistre le passage (source : 'k40' ou 'manuel').
-        $db->prepare(
-            'INSERT INTO pointage_passage (employe_id, date, type, horodatage, appareil_id, source)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        )->execute([$employeId, $date, $type, $ts, $appareilId, $source]);
+        // 2) Enregistre le passage de façon IDEMPOTENTE (source : 'k40' ou 'manuel').
+        // Le client_uuid est déterministe (employé + horodatage) : un même punch
+        // renvoyé/rejoué par le terminal (handshake Stamp=0, reconnexion ADMS, double
+        // traitement pull/push) produit le MÊME uuid -> INSERT IGNORE le rejette via
+        // l'index UNIQUE uq_pp_client_uuid -> aucun doublon, aucune inversion de parité.
+        $clientUuid = self::clientUuid($employeId, $ts);
+        $ins = $db->prepare(
+            'INSERT IGNORE INTO pointage_passage
+                (employe_id, date, type, horodatage, appareil_id, source, client_uuid)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $ins->execute([$employeId, $date, $type, $ts, $appareilId, $source, $clientUuid]);
+        if ($ins->rowCount() === 0) {
+            // Doublon : ce punch est déjà enregistré. Le résumé du jour est déjà
+            // correct -> rien à recalculer (opération sûre à rejouer indéfiniment).
+            return;
+        }
 
         // 3) Recharge tous les passages du jour et recalcule le résumé.
         $stmt = $db->prepare(
@@ -200,5 +212,28 @@ final class K40Pointage
              ON DUPLICATE KEY UPDATE heure_debut = VALUES(heure_debut),
                 heure_fin = VALUES(heure_fin), duree_minutes = VALUES(duree_minutes)"
         )->execute([$employeId, $date, $date . ' ' . $fin, $ts, $dureeSup]);
+    }
+
+    /**
+     * UUID déterministe (36 caractères, forme UUID) pour un punch donné. Le même
+     * punch (même employé + même horodatage) produit toujours le même uuid, ce qui
+     * permet la déduplication via l'index UNIQUE pointage_passage.client_uuid.
+     */
+    private static function clientUuid(int $employeId, string $ts): string
+    {
+        // Canonicalise l'horodatage avant le hachage : le MÊME punch produit le même
+        // uuid quel que soit le format reçu (pull vs push, variante firmware/epoch),
+        // pour que la déduplication fonctionne aussi BIEN entre les deux chemins.
+        $t = strtotime($ts);
+        $norm = $t !== false ? date('Y-m-d H:i:s', $t) : $ts;
+        $h = md5('k40|' . $employeId . '|' . $norm); // 32 caractères hexadécimaux
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($h, 0, 8),
+            substr($h, 8, 4),
+            substr($h, 12, 4),
+            substr($h, 16, 4),
+            substr($h, 20, 12)
+        );
     }
 }

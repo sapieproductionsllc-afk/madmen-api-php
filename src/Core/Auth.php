@@ -24,8 +24,13 @@ final class Auth
      */
     public static function enforce(string $method, string $uri): void
     {
-        if (!Env::bool('AUTH_ENABLED', false)) {
-            return; // Auth désactivée (démo) : on laisse passer.
+        // Fail-closed : l'authentification est ACTIVE par défaut. Elle n'est
+        // désactivée QUE pour le développement LOCAL explicite (APP_ENV=local ET
+        // AUTH_ENABLED=false). En production/staging — ou si APP_ENV/AUTH_ENABLED
+        // ne sont pas définis — l'authentification s'applique TOUJOURS.
+        $devLocalSansAuth = Env::get('APP_ENV') === 'local' && !Env::bool('AUTH_ENABLED', true);
+        if ($devLocalSansAuth) {
+            return; // dev local explicite : on laisse passer.
         }
         if (in_array($uri, self::PUBLIC_PATHS, true)) {
             return; // Route publique (liste blanche).
@@ -85,10 +90,10 @@ final class Auth
             exit;
         };
 
-        if (!Env::bool('AUTH_ENABLED', false)) {
-            $fail('AUTH_ENABLED doit valoir true en production.');
+        if (!Env::bool('AUTH_ENABLED', true)) {
+            $fail('AUTH_ENABLED ne doit pas valoir false en production.');
         }
-        $defauts = ['', 'changez-moi-en-production'];
+        $defauts = ['', 'changez-moi-en-production', 'dev-insecure-key-change-me'];
         if (in_array(trim(Env::get('APP_KEY')), $defauts, true)) {
             $fail('APP_KEY non régénérée (valeur par défaut).');
         }

@@ -271,11 +271,17 @@ final class K40Controller
         $cfg = K40::config();
         $db = Database::connection();
 
+        // try/finally : quoi qu'il arrive (même si getAttendance lève), on RÉ-ACTIVE
+        // le terminal et on se déconnecte. Sinon une lecture qui échoue laisserait le
+        // K40 « désactivé » et plus PERSONNE ne pourrait pointer à l'entrée.
         $zk = K40::connect();
-        @$zk->disableDevice();
-        $logs = $zk->getAttendance();
-        @$zk->enableDevice();
-        @$zk->disconnect();
+        try {
+            @$zk->disableDevice();
+            $logs = $zk->getAttendance();
+        } finally {
+            @$zk->enableDevice();
+            @$zk->disconnect();
+        }
 
         if (!is_array($logs)) {
             $logs = [];
@@ -293,23 +299,31 @@ final class K40Controller
         $ignores = 0;
         $inconnus = [];
         $maxTs = $lastSync;
+        // Dès qu'un punch NON MAPPÉ est rencontré, on n'avance plus le curseur
+        // au-delà : il sera relu à la prochaine synchro puis enregistré une fois
+        // l'employé mappé (plus de perte définitive). La déduplication par
+        // client_uuid rend ce ré-traitement totalement sûr (aucun doublon créé).
+        $bloque = false;
 
         foreach ($logs as $log) {
             $recus++;
             $ts = (string) ($log['timestamp'] ?? '');
             $devId = (string) ($log['id'] ?? '');
-            if ($ts === '' || $ts <= $lastSync) {
-                continue; // déjà traité
-            }
-            if ($ts > $maxTs) {
-                $maxTs = $ts;
+            // '<' (et non '<=') : un punch distinct à la même seconde que le curseur
+            // n'est plus perdu ; un éventuel re-traitement est neutralisé par la dédup.
+            if ($ts === '' || $ts < $lastSync) {
+                continue;
             }
 
             if (K40Pointage::record($db, $devId, $ts, $cfg['heure_limite']) === 'traite') {
                 $traites++;
+                if (!$bloque && $ts > $maxTs) {
+                    $maxTs = $ts;
+                }
             } else {
                 $ignores++;
                 $inconnus[$devId] = true;
+                $bloque = true; // ne pas dépasser ce punch non mappé
             }
         }
 
