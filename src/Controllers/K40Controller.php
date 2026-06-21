@@ -54,6 +54,7 @@ final class K40Controller
     /** GET /api/k40/users — liste les utilisateurs enregistrés sur le terminal. */
     public function users(): void
     {
+        @set_time_limit(0); // lecture des users lente sur le terminal
         try {
             $zk = K40::connect();
             $users = $zk->getUser();
@@ -131,6 +132,10 @@ final class K40Controller
      */
     public function pushAll(): void
     {
+        // Chaque setUser est lent (~4 s) sur le K40 ; un batch dépasse les 30 s
+        // par défaut de PHP. On lève la limite le temps de l'opération.
+        @set_time_limit(0);
+
         $db = Database::connection();
         $emps = $db->query(
             "SELECT id, device_user_id, nom, prenom FROM employe WHERE statut = 'actif' ORDER BY id"
@@ -197,6 +202,8 @@ final class K40Controller
      */
     public function runSync(): array
     {
+        @set_time_limit(0); // getAttendance peut être long sur le terminal
+
         $cfg = K40::config();
         $db = Database::connection();
 
