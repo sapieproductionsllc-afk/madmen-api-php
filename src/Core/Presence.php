@@ -94,11 +94,19 @@ final class Presence
             if (is_array($plan)) {
                 foreach ($plan as $k => $v) {
                     $j = (int) $k;
-                    if ($j >= 1 && $j <= 7 && is_array($v) && !empty($v['debut']) && !empty($v['fin'])) {
-                        $jours[$j] = [
-                            'debut' => substr((string) $v['debut'], 0, 5),
-                            'fin'   => substr((string) $v['fin'], 0, 5),
-                        ];
+                    if ($j < 1 || $j > 7 || !is_array($v)) {
+                        continue;
+                    }
+                    // Défense en profondeur : on re-valide le format HH:MM lu en base
+                    // (même si l'écriture est déjà validée) pour ne jamais alimenter
+                    // les calculs avec une heure corrompue (sinon paie faussée).
+                    $debut = isset($v['debut']) ? substr((string) $v['debut'], 0, 5) : '';
+                    $fin = isset($v['fin']) ? substr((string) $v['fin'], 0, 5) : '';
+                    $re = '/^([01]\d|2[0-3]):([0-5]\d)$/';
+                    if (preg_match($re, $debut) === 1 && preg_match($re, $fin) === 1 && $fin > $debut) {
+                        $jours[$j] = ['debut' => $debut, 'fin' => $fin];
+                    } else {
+                        error_log("horaire_employe.planning invalide (employe $employeId, jour $j) : ignoré");
                     }
                 }
             }

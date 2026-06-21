@@ -94,6 +94,7 @@ final class HoraireController
             )->execute([$id, $arr, $dep, $tol, $jours, json_encode($planning)]);
 
             $this->show($params);
+            return; // ne pas tomber dans le mode legacy ci-dessous
         }
 
         // --- Mode HORAIRE UNIQUE (legacy : mêmes heures tous les jours) ---
