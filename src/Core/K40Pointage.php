@@ -81,6 +81,8 @@ final class K40Pointage
         $date = substr($ts, 0, 10);
         // Horaire PROPRE à l'employé (ou global par défaut) : référence des calculs.
         $horaire = Presence::horaire($db, $employeId);
+        // Fenêtre du JOUR (emploi du temps par jour) pour le retard ; null = repos.
+        $fenetre = Presence::fenetreJour(Presence::planning($db, $employeId), $date);
 
         // 1) Type à bascule d'après le nombre de passages du jour.
         $stmt = $db->prepare('SELECT COUNT(*) FROM pointage_passage WHERE employe_id = ? AND date = ?');
@@ -106,7 +108,8 @@ final class K40Pointage
         $pid = $stmt->fetchColumn();
 
         if (!$pid) {
-            $retard = Presence::retardMinutes($resume['entree'], $horaire);
+            // Retard vs la fenêtre du jour (au-delà de la tolérance). Repos -> 0.
+            $retard = $fenetre ? Presence::retardDansFenetre($resume['entree'], $fenetre) : 0;
             $statut = $retard > 0 ? 'retard' : 'present';
             $db->prepare(
                 'INSERT INTO pointage

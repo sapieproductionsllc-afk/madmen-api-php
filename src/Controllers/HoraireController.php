@@ -23,16 +23,18 @@ final class HoraireController
 
         $stmt = Database::connection()->prepare(
             'SELECT heure_arrivee, heure_depart, pause_debut, pause_fin,
-                    tolerance_minutes, jours_travailles
+                    tolerance_minutes, jours_travailles, planning
              FROM horaire_employe WHERE employe_id = ?'
         );
         $stmt->execute([$id]);
         $row = $stmt->fetch();
 
         if ($row) {
+            $plan = !empty($row['planning']) ? json_decode((string) $row['planning'], true) : null;
             Response::json([
                 'employe_id'        => $id,
                 'personnalise'      => true,
+                'planning'          => is_array($plan) ? $plan : null,
                 'heure_arrivee'     => substr((string) $row['heure_arrivee'], 0, 5),
                 'heure_depart'      => substr((string) $row['heure_depart'], 0, 5),
                 'pause_debut'       => $row['pause_debut'] !== null ? substr((string) $row['pause_debut'], 0, 5) : null,
@@ -46,6 +48,7 @@ final class HoraireController
         Response::json([
             'employe_id'        => $id,
             'personnalise'      => false,
+            'planning'          => null,
             'heure_arrivee'     => $d['debut'],
             'heure_depart'      => $d['fin'],
             'pause_debut'       => $d['dejeuner_debut'],
@@ -62,6 +65,38 @@ final class HoraireController
         $this->assertEmploye($id);
         $body = Request::body();
 
+        // --- Mode EMPLOI DU TEMPS PAR JOUR (planning) ---
+        if (isset($body['planning']) && is_array($body['planning'])) {
+            $tol = (int) ($body['tolerance_minutes'] ?? 0);
+            if ($tol < 0 || $tol > 240) {
+                Response::error("'tolerance_minutes' doit être entre 0 et 240", 422);
+            }
+            $planning = $this->normPlanning($body['planning']);
+            if ($planning === null) {
+                Response::error("'planning' invalide (clés 1-7 ; chaque jour : debut/fin HH:MM avec fin > debut)", 422);
+            }
+            if ($planning === []) {
+                Response::error("'planning' doit contenir au moins un jour travaillé", 422);
+            }
+            $arr = min(array_column($planning, 'debut')) . ':00';
+            $dep = max(array_column($planning, 'fin')) . ':00';
+            $jours = implode(',', array_keys($planning));
+
+            Database::connection()->prepare(
+                "INSERT INTO horaire_employe
+                    (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, jours_travailles, planning)
+                 VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    heure_arrivee = VALUES(heure_arrivee), heure_depart = VALUES(heure_depart),
+                    pause_debut = NULL, pause_fin = NULL,
+                    tolerance_minutes = VALUES(tolerance_minutes),
+                    jours_travailles = VALUES(jours_travailles), planning = VALUES(planning)"
+            )->execute([$id, $arr, $dep, $tol, $jours, json_encode($planning)]);
+
+            $this->show($params);
+        }
+
+        // --- Mode HORAIRE UNIQUE (legacy : mêmes heures tous les jours) ---
         $arr = $this->normTime($body['heure_arrivee'] ?? null);
         $dep = $this->normTime($body['heure_depart'] ?? null);
         if ($arr === null || $dep === null) {
@@ -100,7 +135,8 @@ final class HoraireController
              ON DUPLICATE KEY UPDATE
                 heure_arrivee = VALUES(heure_arrivee), heure_depart = VALUES(heure_depart),
                 pause_debut = VALUES(pause_debut), pause_fin = VALUES(pause_fin),
-                tolerance_minutes = VALUES(tolerance_minutes), jours_travailles = VALUES(jours_travailles)"
+                tolerance_minutes = VALUES(tolerance_minutes), jours_travailles = VALUES(jours_travailles),
+                planning = NULL"
         )->execute([$id, $arr, $dep, $pdeb, $pfin, $tol, $jours]);
 
         $this->show($params);
@@ -134,6 +170,40 @@ final class HoraireController
         sort($k);
 
         return implode(',', $k);
+    }
+
+    /**
+     * Valide/normalise un planning par jour {jourISO: {debut, fin}} -> map triée
+     * [1 => ['debut'=>'08:00','fin'=>'18:00'], ...]. null si invalide ; [] si vide.
+     */
+    private function normPlanning($plan): ?array
+    {
+        $out = [];
+        foreach ($plan as $k => $v) {
+            $j = (int) $k;
+            if ((string) $j !== (string) $k || $j < 1 || $j > 7 || !is_array($v)) {
+                return null;
+            }
+            $debut = $this->normHM($v['debut'] ?? null);
+            $fin = $this->normHM($v['fin'] ?? null);
+            if ($debut === null || $fin === null || $fin <= $debut) {
+                return null;
+            }
+            $out[$j] = ['debut' => $debut, 'fin' => $fin];
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /** Valide une heure 'HH:MM' (renvoyée telle quelle) ; null si invalide. */
+    private function normHM($v): ?string
+    {
+        if (!is_string($v) || preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', trim($v)) !== 1) {
+            return null;
+        }
+
+        return trim($v);
     }
 
     private function assertEmploye(int $id): void

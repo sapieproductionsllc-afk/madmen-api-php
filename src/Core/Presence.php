@@ -70,6 +70,83 @@ final class Presence
         ];
     }
 
+    /**
+     * Emploi du temps PAR JOUR de l'employé, normalisé : retourne
+     *   [ 'jours' => [ 1 => ['debut'=>'08:00','fin'=>'18:00'], ..., 6 => [...] ],
+     *     'tolerance' => 0 ]
+     * où la clé jour = ISO (1=lundi..7=dimanche). Un jour absent = repos.
+     * Source : colonne `planning` (JSON) si présente ; sinon repli sur l'horaire
+     * unique (heure_arrivee/heure_depart répliqué sur jours_travailles).
+     */
+    public static function planning(PDO $db, int $employeId): array
+    {
+        $stmt = $db->prepare(
+            'SELECT heure_arrivee, heure_depart, tolerance_minutes, jours_travailles, planning
+             FROM horaire_employe WHERE employe_id = ?'
+        );
+        $stmt->execute([$employeId]);
+        $row = $stmt->fetch();
+
+        // 1) Planning par jour (JSON) prioritaire.
+        if ($row && !empty($row['planning'])) {
+            $plan = json_decode((string) $row['planning'], true);
+            $jours = [];
+            if (is_array($plan)) {
+                foreach ($plan as $k => $v) {
+                    $j = (int) $k;
+                    if ($j >= 1 && $j <= 7 && is_array($v) && !empty($v['debut']) && !empty($v['fin'])) {
+                        $jours[$j] = [
+                            'debut' => substr((string) $v['debut'], 0, 5),
+                            'fin'   => substr((string) $v['fin'], 0, 5),
+                        ];
+                    }
+                }
+            }
+
+            return ['jours' => $jours, 'tolerance' => (int) $row['tolerance_minutes']];
+        }
+
+        // 2) Repli : horaire unique répliqué sur chaque jour travaillé.
+        $h = self::horaire($db, $employeId);
+        $liste = array_filter(array_map('trim', explode(',', (string) $h['jours'])), 'strlen');
+        if ($liste === []) {
+            $liste = ['1', '2', '3', '4', '5', '6', '7'];
+        }
+        $jours = [];
+        foreach ($liste as $j) {
+            $jours[(int) $j] = ['debut' => $h['debut'], 'fin' => $h['fin']];
+        }
+
+        return ['jours' => $jours, 'tolerance' => (int) $h['tolerance']];
+    }
+
+    /**
+     * Fenêtre de travail prévue pour une DATE donnée selon le planning, ou null si
+     * c'est un jour de repos (non saisi). Forme : ['debut','fin','tolerance'].
+     */
+    public static function fenetreJour(array $planning, string $date): ?array
+    {
+        $j = (int) date('N', strtotime($date));
+        if (!isset($planning['jours'][$j])) {
+            return null; // repos
+        }
+
+        return $planning['jours'][$j] + ['tolerance' => $planning['tolerance'] ?? 0];
+    }
+
+    /**
+     * Retard (minutes) vs une FENÊTRE de jour donnée (déjà résolue : le jour est
+     * travaillé). Compte uniquement au-delà de la tolérance. Voir retardMinutes.
+     */
+    public static function retardDansFenetre(string $ts, array $fenetre): int
+    {
+        $arrivee = strtotime($ts);
+        $debut = strtotime(date('Y-m-d', $arrivee) . ' ' . $fenetre['debut']);
+        $grace = $debut + ((int) ($fenetre['tolerance'] ?? 0)) * 60;
+
+        return $arrivee <= $grace ? 0 : (int) (($arrivee - $grace) / 60);
+    }
+
     /** Vrai si la date de $ts est un jour travaillé selon l'horaire. */
     public static function estJourTravaille(string $ts, ?array $h = null): bool
     {

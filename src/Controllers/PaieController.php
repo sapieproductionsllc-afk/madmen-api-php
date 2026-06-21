@@ -64,15 +64,21 @@ final class PaieController
         $today = date('Y-m-d');
         $borneAbsence = min($dateFin, $today); // on ne marque pas absent un jour futur
 
-        $horaire = Presence::horaire($db, $id);
-        $jours = (string) $horaire['jours'];
+        // Emploi du temps PAR JOUR de l'employé (ou repli horaire unique).
+        $planning = Presence::planning($db, $id);
         // Jours fériés du mois : payés -> jamais comptés comme absence.
         $feries = JourFerieController::map($db, $dateDebut, $dateFin);
 
-        // Bases théoriques (mois complet).
-        $tempsJournalierSec = Paie::tempsJournalierSecondes($horaire);
-        $joursOuvres = Paie::compterJoursTravailles($dateDebut, $dateFin, $jours);
-        $tempsTheoriqueMensuelSec = $tempsJournalierSec * $joursOuvres;
+        // Base théorique = somme des fenêtres de CHAQUE jour planifié du mois.
+        $tempsTheoriqueMensuelSec = 0;
+        $joursOuvres = 0;
+        for ($t = strtotime($dateDebut), $tf = strtotime($dateFin); $t <= $tf; $t = strtotime('+1 day', $t)) {
+            $w = Presence::fenetreJour($planning, $d = date('Y-m-d', $t));
+            if ($w !== null) {
+                $tempsTheoriqueMensuelSec += self::dureeFenetre($d, $w);
+                $joursOuvres++;
+            }
+        }
         $valeurSeconde = Paie::valeurSeconde($salaire, $tempsTheoriqueMensuelSec);
 
         // Pointages du mois (jours réellement pointés).
@@ -95,29 +101,44 @@ final class PaieController
                 continue; // pointage sans entrée exploitable -> jour traité comme absent
             }
             $present[$date] = true;
-            $estOuvre = Paie::estJourTravaille($date, $jours);
-            $worked = Paie::tempsTravailleSecondes($p['heure_entree'], $p['heure_sortie']);
-            $late = $estOuvre ? max(0, (int) $p['retard_minutes']) * 60 : 0;
-            // Jour planifié : heures sup = dépassement de la journée prévue.
-            // Jour NON planifié (week-end/extra) : TOUT le temps est de l'heure sup
-            // (travail « en plus »), montré à part, non payé d'office.
-            $sup = $estOuvre ? Paie::heuresSupSecondes($worked, $tempsJournalierSec) : $worked;
+            $w = Presence::fenetreJour($planning, $date);
+            $workStart = strtotime((string) $p['heure_entree']);
+            $workEnd = !empty($p['heure_sortie']) ? strtotime((string) $p['heure_sortie']) : $workStart;
+            $worked = max(0, $workEnd - $workStart);
+
+            if ($w === null) {
+                // Jour NON planifié (week-end/extra) : TOUT le temps = heures sup.
+                $normal = 0;
+                $sup = $worked;
+                $late = 0;
+                $status = 'EXTRA';
+            } else {
+                // Jour planifié : NORMAL = temps DANS la fenêtre saisie ; tout ce qui
+                // est HORS fenêtre (avant le début OU après la fin) = heures sup.
+                $winStart = strtotime("$date " . $w['debut']);
+                $winEnd = strtotime("$date " . $w['fin']);
+                $normal = max(0, min($workEnd, $winEnd) - max($workStart, $winStart));
+                $sup = max(0, $worked - $normal);
+                $late = max(0, (int) $p['retard_minutes']) * 60;
+                $status = $late > 0 ? 'LATE' : 'PRESENT';
+                if ($late > 0) {
+                    $nbRetards++;
+                }
+            }
 
             $totalTravailleSec += $worked;
             $totalRetardSec += $late;
             $totalSupSec += $sup;
-            if ($estOuvre && $late > 0) {
-                $nbRetards++;
-            }
 
             $detail[$date] = [
-                'date'            => $date,
-                'check_in'        => $p['heure_entree'],
-                'check_out'       => $p['heure_sortie'],
-                'worked_seconds'  => $worked,
-                'late_seconds'    => $late,
+                'date'             => $date,
+                'check_in'         => $p['heure_entree'],
+                'check_out'        => $p['heure_sortie'],
+                'worked_seconds'   => $worked,
+                'normal_seconds'   => $normal,
+                'late_seconds'     => $late,
                 'overtime_seconds' => $sup,
-                'status'          => !$estOuvre ? 'EXTRA' : ($late > 0 ? 'LATE' : 'PRESENT'),
+                'status'           => $status,
             ];
         }
 
@@ -125,28 +146,29 @@ final class PaieController
         // d'absence, pas de déduction) ; sinon ABSENT (déduit).
         $joursAbsent = 0;
         $joursFeries = 0;
-        $cur = strtotime($dateDebut);
-        $end = strtotime($borneAbsence);
-        while ($cur <= $end) {
-            $date = date('Y-m-d', $cur);
-            if (Paie::estJourTravaille($date, $jours) && !isset($present[$date])) {
-                if (isset($feries[$date])) {
-                    $joursFeries++;
-                    $detail[$date] = [
-                        'date' => $date, 'check_in' => null, 'check_out' => null,
-                        'worked_seconds' => 0, 'late_seconds' => 0, 'overtime_seconds' => 0,
-                        'status' => 'FERIE', 'libelle' => $feries[$date],
-                    ];
-                } else {
-                    $joursAbsent++;
-                    $detail[$date] = [
-                        'date' => $date, 'check_in' => null, 'check_out' => null,
-                        'worked_seconds' => 0, 'late_seconds' => 0, 'overtime_seconds' => 0,
-                        'status' => 'ABSENT',
-                    ];
-                }
+        $absenceSec = 0;
+        for ($t = strtotime($dateDebut), $tb = strtotime($borneAbsence); $t <= $tb; $t = strtotime('+1 day', $t)) {
+            $date = date('Y-m-d', $t);
+            $w = Presence::fenetreJour($planning, $date);
+            if ($w === null || isset($present[$date])) {
+                continue; // repos, ou déjà pointé
             }
-            $cur = strtotime('+1 day', $cur);
+            if (isset($feries[$date])) {
+                $joursFeries++;
+                $detail[$date] = [
+                    'date' => $date, 'check_in' => null, 'check_out' => null,
+                    'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
+                    'overtime_seconds' => 0, 'status' => 'FERIE', 'libelle' => $feries[$date],
+                ];
+            } else {
+                $joursAbsent++;
+                $absenceSec += self::dureeFenetre($date, $w);
+                $detail[$date] = [
+                    'date' => $date, 'check_in' => null, 'check_out' => null,
+                    'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
+                    'overtime_seconds' => 0, 'status' => 'ABSENT',
+                ];
+            }
         }
         ksort($detail);
 
@@ -159,7 +181,8 @@ final class PaieController
 
         // Montants (arrondis au FCFA entier ; valeurs unitaires à 2 décimales).
         $deductionRetard = $calculable ? round($totalRetardSec * $valeurSeconde) : null;
-        $deductionAbsence = $calculable ? round($joursAbsent * $tempsJournalierSec * $valeurSeconde) : null;
+        // Absence déduite selon la durée RÉELLE de chaque jour manqué (sa fenêtre).
+        $deductionAbsence = $calculable ? round($absenceSec * $valeurSeconde) : null;
         // Heures sup : NON incluses dans le salaire. Enregistrées à part ; cette
         // valeur est seulement INDICATIVE (ce que coûterait leur paiement) si
         // l'employeur décide d'accorder un bonus. Elle n'entre PAS dans le net.
@@ -174,9 +197,8 @@ final class PaieController
                 'nom' => $employe['nom'], 'prenom' => $employe['prenom'],
             ],
             'mois' => $mois,
-            'horaire' => ['arrivee' => $horaire['debut'], 'depart' => $horaire['fin'], 'jours' => $jours],
-            'temps_journalier_sec'        => $tempsJournalierSec,
-            'temps_journalier'            => Paie::formatHM($tempsJournalierSec),
+            'planning'                    => $planning['jours'],
+            'tolerance_minutes'           => $planning['tolerance'],
             'jours_ouvres_mois'           => $joursOuvres,
             'temps_theorique_mensuel_sec' => $tempsTheoriqueMensuelSec,
             'temps_theorique_mensuel'     => Paie::formatHM($tempsTheoriqueMensuelSec),
@@ -204,6 +226,12 @@ final class PaieController
             'salaire_net'                 => $salaireNet,
             'detail'                      => array_values($detail),
         ];
+    }
+
+    /** Durée (secondes) d'une fenêtre de jour [debut, fin] à la date donnée. */
+    private static function dureeFenetre(string $date, array $w): int
+    {
+        return max(0, strtotime("$date " . $w['fin']) - strtotime("$date " . $w['debut']));
     }
 
     /** Valide et normalise le mois (YYYY-MM) ; défaut = mois courant. Tolère un type non-string (?mois[]=) -> défaut. */
