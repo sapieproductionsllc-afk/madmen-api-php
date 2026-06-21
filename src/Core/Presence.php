@@ -83,11 +83,11 @@ final class Presence
     }
 
     /**
-     * Minutes de retard vs l'heure d'arrivée prévue. Règle : la tolérance est un
-     * SEUIL « tout ou rien » — tant que l'arrivée est dans (début + tolérance), le
-     * retard vaut 0 ; dès que ce seuil est dépassé, le retard est compté depuis
-     * l'heure d'arrivée PRÉVUE (pas depuis la fin de tolérance). Retard = 0 aussi
-     * en avance ou si le jour n'est pas travaillé. (Modèle RH ajustable.)
+     * Minutes de retard. Règle : le retard ne compte QUE ce qui dépasse la marge
+     * de tolérance. Tant que l'arrivée est dans (début + tolérance), retard = 0 ;
+     * au-delà, retard = minutes écoulées depuis la FIN de la tolérance (pas de saut
+     * brutal). Retard = 0 aussi en avance ou si le jour n'est pas travaillé.
+     * Ex. début 08:30, tolérance 15 : arrivée 08:46 -> 1 min ; 09:00 -> 15 min.
      */
     public static function retardMinutes(string $ts, ?array $h = null): int
     {
@@ -103,7 +103,7 @@ final class Presence
             return 0;
         }
 
-        return (int) (($arrivee - $debut) / 60);
+        return (int) (($arrivee - $grace) / 60);
     }
 
     /** Vrai si l'heure de $ts tombe dans la pause déjeuner [debut, fin] de l'horaire. */
