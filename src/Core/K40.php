@@ -23,6 +23,11 @@ final class K40
     {
         $cfg = self::config();
 
+        // La lib rats/zkteco appelle utf8_encode()/utf8_decode() (dépréciés en
+        // PHP 8.2+). On masque E_DEPRECATED pour que l'avertissement ne pollue pas
+        // les réponses JSON de l'API (sinon du HTML d'erreur précède le JSON).
+        error_reporting(error_reporting() & ~E_DEPRECATED);
+
         if (!$cfg['enabled']) {
             throw new RuntimeException('K40 désactivé (mettre K40_ENABLED=true dans .env).');
         }

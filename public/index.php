@@ -44,6 +44,7 @@ use MadMen\Controllers\SyncController;
 use MadMen\Controllers\MotifController;
 use MadMen\Controllers\PosteController;
 use MadMen\Controllers\AuthController;
+use MadMen\Controllers\HeuresSupController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -146,6 +147,7 @@ $router->post('/api/pointages', [PointageController::class, 'store']);
 
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
+$router->get('/api/sessions/{id}', [SessionController::class, 'show']);
 $router->post('/api/sessions/login', [SessionController::class, 'login']);
 $router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin']);
 
@@ -160,6 +162,9 @@ $router->post('/api/sessions/{id}/activite', [SessionController::class, 'activit
 
 // --- API : Synchronisation montante (offline-first) ---
 $router->post('/api/sync', [SyncController::class, 'sync']);
+
+// --- API : Heures supplémentaires ---
+$router->get('/api/heures-supplementaires', [HeuresSupController::class, 'index']);
 
 // --- API : Alertes ---
 $router->get('/api/alertes', [AlerteController::class, 'index']);
@@ -179,6 +184,8 @@ $router->get('/api/k40/status', [K40Controller::class, 'status']);
 $router->post('/api/k40/sync', [K40Controller::class, 'sync']);
 $router->get('/api/k40/users', [K40Controller::class, 'users']);
 $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
+$router->delete('/api/k40/users/{id}', [K40Controller::class, 'removeUser']);
+$router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode

@@ -96,6 +96,34 @@ final class K40Controller
         Response::json(['message' => 'Employé envoyé au K40', 'device_user_id' => $deviceUserId]);
     }
 
+    /** DELETE /api/k40/users/{id} — retire un employé du terminal (uid = employe.id). */
+    public function removeUser(array $params): void
+    {
+        try {
+            $zk = K40::connect();
+            $zk->removeUser((int) $params['id']);
+            @$zk->disconnect();
+        } catch (Throwable $e) {
+            Response::error($this->messagePublic('Suppression sur le K40 échouée', $e), 502);
+        }
+
+        Response::json(['message' => 'Employé retiré du K40', 'uid' => (int) $params['id']]);
+    }
+
+    /** POST /api/k40/clear-users — efface TOUS les utilisateurs du terminal. */
+    public function clearUsers(): void
+    {
+        try {
+            $zk = K40::connect();
+            $zk->clearUsers();
+            @$zk->disconnect();
+        } catch (Throwable $e) {
+            Response::error($this->messagePublic('Effacement des utilisateurs K40 échoué', $e), 502);
+        }
+
+        Response::json(['message' => 'Tous les utilisateurs ont été retirés du K40']);
+    }
+
     // ----------------------------------------------------------------- sécurité
 
     /**
