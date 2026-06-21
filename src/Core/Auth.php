@@ -66,6 +66,40 @@ final class Auth
         }
     }
 
+    /**
+     * Garde-fou de démarrage : en PRODUCTION (APP_ENV=production), refuse de servir
+     * si la configuration est dangereuse (auth désactivée, secrets par défaut,
+     * aucune clé, CORS ouvert). Ne fait RIEN hors production (dev/démo intacts).
+     */
+    public static function assertProductionSafe(): void
+    {
+        if (Env::get('APP_ENV') !== 'production') {
+            return;
+        }
+
+        $fail = static function (string $raison): void {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => 'Configuration de production invalide']);
+            error_log('BOOT REFUSÉ (production) : ' . $raison);
+            exit;
+        };
+
+        if (!Env::bool('AUTH_ENABLED', false)) {
+            $fail('AUTH_ENABLED doit valoir true en production.');
+        }
+        $defauts = ['', 'changez-moi-en-production'];
+        if (in_array(trim(Env::get('APP_KEY')), $defauts, true)) {
+            $fail('APP_KEY non régénérée (valeur par défaut).');
+        }
+        if (in_array(trim(Env::get('API_KEY')), $defauts, true) && self::expectedKeys() === []) {
+            $fail('Aucune API_KEY valide configurée.');
+        }
+        if (trim(Env::get('CORS_ORIGIN', '*')) === '*') {
+            $fail('CORS_ORIGIN ne doit pas valoir "*" en production.');
+        }
+    }
+
     /** Payload du jeton JWT courant (ou null si absent/invalide). */
     public static function currentUser(): ?array
     {

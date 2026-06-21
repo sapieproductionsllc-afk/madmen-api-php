@@ -73,6 +73,16 @@ final class K40Template
             throw new RuntimeException('K40 désactivé (K40_ENABLED).');
         }
 
+        // LOCAL-ONLY : l'écriture de gabarit exige proc_open (pont Python pyzk),
+        // souvent désactivé en hébergement mutualisé. Cette opération n'a de sens
+        // que sur la passerelle locale (PC admin sur le LAN du K40).
+        if (!function_exists('proc_open')) {
+            throw new RuntimeException(
+                "Provisioning d'empreintes indisponible sur cet hôte (proc_open désactivé) : "
+                . 'opération réservée à la passerelle locale K40.'
+            );
+        }
+
         $ip = (string) ($cfg['ip'] ?? '');
         if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
             throw new RuntimeException('IP K40 invalide dans la config.');

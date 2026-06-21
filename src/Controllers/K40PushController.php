@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Env;
 use MadMen\Core\K40;
 use MadMen\Core\K40Pointage;
 use MadMen\Core\Response;
@@ -38,7 +39,13 @@ final class K40PushController
         }
 
         if ($allowed === []) {
-            // Comportement dev : liste blanche non configurée, on accepte mais on trace.
+            // En PRODUCTION : refuser si la liste blanche n'est pas configurée
+            // (sinon n'importe quel terminal pourrait forger des pointages).
+            if (Env::get('APP_ENV') === 'production') {
+                Response::text("ERROR: SN non configuré (K40_PUSH_SN requis)\n", 403);
+                return null;
+            }
+            // Dev : liste blanche non configurée, on accepte mais on trace.
             error_log('AVERTISSEMENT iclock: SN non vérifié (K40_PUSH_SN vide)');
             return $sn;
         }
@@ -93,6 +100,12 @@ final class K40PushController
         }
 
         $raw = file_get_contents('php://input') ?: '';
+        // Borne anti-DoS : un lot ATTLOG légitime reste modeste. Au-delà, on refuse
+        // (évite l'insertion massive forgée).
+        if (strlen($raw) > 1048576) { // 1 Mo
+            Response::text("ERROR: corps trop volumineux\n", 413);
+            return;
+        }
         $cfg = K40::config();
         $db = Database::connection();
 

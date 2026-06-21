@@ -1,0 +1,13 @@
+# FILET DE SÉCURITÉ : le DocumentRoot doit pointer sur public/, PAS sur la racine
+# du dépôt. Si malgré tout la racine est servie, on bloque tout ce qui est sensible
+# (secrets, code source, scripts, base, dépendances).
+
+RedirectMatch 403 ^/(\.env.*|src|config|scripts|database|vendor|tests|docs)(/|$)
+
+<FilesMatch "\.(env|ini|lock|sql|py|md|sh|bat)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

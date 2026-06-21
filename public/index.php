@@ -58,6 +58,18 @@ if (PHP_SAPI === 'cli-server') {
     }
 }
 
+// Garde-fou de production : refuse de démarrer si la config est dangereuse
+// (auth off, secrets par défaut, CORS *). Sans effet hors production.
+Auth::assertProductionSafe();
+
+// En-têtes de sécurité (sans effet néfaste en dev ; indispensables en ligne).
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: no-referrer');
+if (Env::get('APP_ENV') === 'production') {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+
 // CORS : origine restreinte via .env (CORS_ORIGIN). Défaut '*' pour la démo.
 header('Access-Control-Allow-Origin: ' . Env::get('CORS_ORIGIN', '*'));
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -179,20 +191,26 @@ $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']
 $router->get('/api/productivite/classement', [ProductiviteController::class, 'classement']);
 $router->get('/api/productivite/{id}', [ProductiviteController::class, 'show']);
 
+$k40Config = require dirname(__DIR__) . '/config/k40.php';
+
 // --- API : Pointeuse K40 — mode PULL (l'API interroge le K40 sur le LAN) ---
-$router->get('/api/k40/status', [K40Controller::class, 'status']);
-$router->post('/api/k40/sync', [K40Controller::class, 'sync']);
-$router->get('/api/k40/users', [K40Controller::class, 'users']);
-$router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
-$router->post('/api/k40/push-all', [K40Controller::class, 'pushAll']);
-$router->delete('/api/k40/users/{id}', [K40Controller::class, 'removeUser']);
-$router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
-$router->post('/api/k40/push-fingerprints', [K40Controller::class, 'pushFingerprints']);
+// Ces routes (interrogation directe du K40 + pont pyzk) n'ont de sens que sur la
+// PASSERELLE locale (K40_ROLE=gateway). En 'cloud' (mutualisé) elles ne sont PAS
+// montées : le cloud ne peut pas joindre le K40 (NAT) et n'a pas proc_open/UDP.
+if (($k40Config['role'] ?? 'cloud') === 'gateway') {
+    $router->get('/api/k40/status', [K40Controller::class, 'status']);
+    $router->post('/api/k40/sync', [K40Controller::class, 'sync']);
+    $router->get('/api/k40/users', [K40Controller::class, 'users']);
+    $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
+    $router->post('/api/k40/push-all', [K40Controller::class, 'pushAll']);
+    $router->delete('/api/k40/users/{id}', [K40Controller::class, 'removeUser']);
+    $router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
+    $router->post('/api/k40/push-fingerprints', [K40Controller::class, 'pushFingerprints']);
+}
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode
 // 'pull' (défaut) elles n'existent pas (réduction de la surface d'attaque).
-$k40Config = require dirname(__DIR__) . '/config/k40.php';
 if (in_array($k40Config['mode'] ?? 'pull', ['push', 'both'], true)) {
     $router->get('/iclock/cdata', [K40PushController::class, 'handshake']);
     $router->post('/iclock/cdata', [K40PushController::class, 'receive']);

@@ -13,6 +13,10 @@ require_once dirname(__DIR__) . '/src/Core/Env.php';
 $env = Env::load();
 
 return [
+    // Rôle de l'instance : 'cloud' (API de gestion, hébergement distant — ne parle
+    // PAS au K40) ou 'gateway' (passerelle locale sur le LAN du bureau — exécute
+    // le PULL + le pont pyzk). Les routes PULL K40 ne sont montées qu'en 'gateway'.
+    'role'           => strtolower((string) ($env['K40_ROLE'] ?? 'cloud')),
     // Mettre à true une fois le K40 branché et configuré sur le réseau.
     'enabled'        => Env::bool('K40_ENABLED', false),
     'ip'             => $env['K40_IP'] ?? '192.168.1.201',
