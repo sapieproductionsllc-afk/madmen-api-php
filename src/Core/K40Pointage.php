@@ -218,14 +218,15 @@ final class K40Pointage
             return;
         }
 
-        // Début des heures sup = heure de fin prévue de l'employé (ou 18:00 global).
-        $fin = ($horaire['fin'] ?? '18:00') . ':00';
+        // Début des heures sup = heure de fin prévue de l'employé (repli : défaut global).
+        $fin = (($horaire ?? Presence::defaultHoraire())['fin']) . ':00';
 
         $db->prepare(
             "INSERT INTO heures_supplementaires
                 (employe_id, date, heure_debut, heure_fin, duree_minutes, source)
              VALUES (?, ?, ?, ?, ?, 'k40')
-             ON DUPLICATE KEY UPDATE heure_fin = VALUES(heure_fin), duree_minutes = VALUES(duree_minutes)"
+             ON DUPLICATE KEY UPDATE heure_debut = VALUES(heure_debut),
+                heure_fin = VALUES(heure_fin), duree_minutes = VALUES(duree_minutes)"
         )->execute([$employeId, $date, $date . ' ' . $fin, $ts, $dureeSup]);
     }
 }

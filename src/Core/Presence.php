@@ -9,6 +9,10 @@ use PDO;
  * Règles métier de présence : retard, pause déjeuner, temps de présence effectif,
  * heures supplémentaires et jours travaillés.
  *
+ * LIMITE : horaires de MÊME JOUR uniquement (heure_depart > heure_arrivee). Les
+ * horaires de nuit traversant minuit (fin <= début) NE sont PAS supportés ; ils
+ * sont d'ailleurs refusés à la configuration (HoraireController::upsert).
+ *
  * Horaire PAR EMPLOYÉ (table horaire_employe) avec repli sur l'horaire GLOBAL
  * (config/presence.php) quand l'employé n'a pas d'horaire défini. Toutes les
  * méthodes de calcul acceptent un horaire ($h) ; null => horaire global par défaut.
@@ -79,8 +83,11 @@ final class Presence
     }
 
     /**
-     * Minutes de retard vs l'heure d'arrivée prévue (+ tolérance). 0 si à l'heure,
-     * en avance, ou si le jour n'est pas travaillé.
+     * Minutes de retard vs l'heure d'arrivée prévue. Règle : la tolérance est un
+     * SEUIL « tout ou rien » — tant que l'arrivée est dans (début + tolérance), le
+     * retard vaut 0 ; dès que ce seuil est dépassé, le retard est compté depuis
+     * l'heure d'arrivée PRÉVUE (pas depuis la fin de tolérance). Retard = 0 aussi
+     * en avance ou si le jour n'est pas travaillé. (Modèle RH ajustable.)
      */
     public static function retardMinutes(string $ts, ?array $h = null): int
     {
