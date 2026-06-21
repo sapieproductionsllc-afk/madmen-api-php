@@ -124,6 +124,39 @@ final class K40Controller
         Response::json(['message' => 'Tous les utilisateurs ont été retirés du K40']);
     }
 
+    /**
+     * POST /api/k40/push-all — pousse TOUS les employés actifs en UNE connexion.
+     * Bien plus fiable que 17 connect/disconnect en rafale (le terminal ne gère
+     * qu'une session UDP à la fois).
+     */
+    public function pushAll(): void
+    {
+        $db = Database::connection();
+        $emps = $db->query(
+            "SELECT id, device_user_id, nom, prenom FROM employe WHERE statut = 'actif' ORDER BY id"
+        )->fetchAll();
+
+        $pushed = 0;
+        try {
+            $zk = K40::connect();
+            foreach ($emps as $emp) {
+                $deviceUserId = $emp['device_user_id'] ?: (string) $emp['id'];
+                $name = mb_substr($emp['prenom'] . ' ' . $emp['nom'], 0, 24);
+                $zk->setUser((int) $emp['id'], $deviceUserId, $name, '');
+                if (!$emp['device_user_id']) {
+                    $db->prepare('UPDATE employe SET device_user_id = ? WHERE id = ?')
+                       ->execute([$deviceUserId, (int) $emp['id']]);
+                }
+                $pushed++;
+            }
+            @$zk->disconnect();
+        } catch (Throwable $e) {
+            Response::error($this->messagePublic('Push global K40 échoué', $e), 502);
+        }
+
+        Response::json(['message' => 'Employés poussés au K40', 'count' => $pushed, 'total' => count($emps)]);
+    }
+
     // ----------------------------------------------------------------- sécurité
 
     /**

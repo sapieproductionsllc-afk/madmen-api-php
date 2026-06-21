@@ -184,6 +184,7 @@ $router->get('/api/k40/status', [K40Controller::class, 'status']);
 $router->post('/api/k40/sync', [K40Controller::class, 'sync']);
 $router->get('/api/k40/users', [K40Controller::class, 'users']);
 $router->post('/api/k40/push-user/{id}', [K40Controller::class, 'pushUser']);
+$router->post('/api/k40/push-all', [K40Controller::class, 'pushAll']);
 $router->delete('/api/k40/users/{id}', [K40Controller::class, 'removeUser']);
 $router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
 

@@ -95,14 +95,15 @@ final class K40Pointage
         $date = substr($ts, 0, 10);
 
         $stmt = $db->prepare(
-            'SELECT id FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?'
+            'SELECT id, heure_entree FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?'
         );
         $stmt->execute([$employeId, $date, $appareilId]);
         $pointage = $stmt->fetch();
 
         if (!$pointage) {
-            $limite = $date . ' ' . $heureLimite . ':00';
-            $retard = max(0, (int) round((strtotime($ts) - strtotime($limite)) / 60));
+            // Arrivée : le retard est calculé par Presence (référence 08:30),
+            // indépendamment de l'ancien paramètre $heureLimite.
+            $retard = Presence::retardMinutes($ts);
             $statut = $retard > 0 ? 'retard' : 'present';
 
             $db->prepare(
@@ -110,8 +111,78 @@ final class K40Pointage
                  VALUES (?, ?, ?, ?, ?, ?, ?)'
             )->execute([$employeId, $appareilId, $date, $ts, 'empreinte', $retard, $statut]);
         } else {
+            // Départ : on met à jour l'heure de sortie...
             $db->prepare('UPDATE pointage SET heure_sortie = ? WHERE id = ?')
                ->execute([$ts, (int) $pointage['id']]);
+
+            // ...puis on verrouille le poste et on enregistre les heures sup.
+            self::verrouillerSessions($db, $employeId, $ts);
+            self::enregistrerHeuresSup($db, $employeId, $date, $ts);
         }
+    }
+
+    /**
+     * Départ K40 : verrouille toutes les sessions ouvertes de l'employé, met les
+     * postes concernés en 'verrouille' et ouvre un incident d'inactivité par session.
+     */
+    private static function verrouillerSessions(PDO $db, int $employeId, string $ts): void
+    {
+        // Récupère les sessions ouvertes AVANT verrouillage (pour leurs ids/postes).
+        $stmt = $db->prepare(
+            "SELECT id, poste_travail_id FROM session_travail WHERE employe_id = ? AND statut = 'ouverte'"
+        );
+        $stmt->execute([$employeId]);
+        $sessions = $stmt->fetchAll();
+
+        if (!$sessions) {
+            return;
+        }
+
+        $db->prepare(
+            "UPDATE session_travail SET statut = 'verrouillee' WHERE employe_id = ? AND statut = 'ouverte'"
+        )->execute([$employeId]);
+
+        $verrouillePoste = $db->prepare(
+            "UPDATE poste_travail SET statut = 'verrouille' WHERE id = ?"
+        );
+        $ouvreIncident = $db->prepare(
+            'INSERT INTO incident_inactivite
+                (session_id, employe_id, poste_travail_id, heure_verrouillage, justification, statut)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+
+        foreach ($sessions as $session) {
+            $posteId = $session['poste_travail_id'] !== null ? (int) $session['poste_travail_id'] : null;
+            if ($posteId !== null) {
+                $verrouillePoste->execute([$posteId]);
+            }
+            $ouvreIncident->execute([
+                (int) $session['id'],
+                $employeId,
+                $posteId,
+                $ts,
+                'Parti du bureau (pointage K40)',
+                'ouvert',
+            ]);
+        }
+    }
+
+    /**
+     * Enregistre (upsert) les heures supplémentaires si le départ dépasse 18:00.
+     * Clé unique : employe_id + date.
+     */
+    private static function enregistrerHeuresSup(PDO $db, int $employeId, string $date, string $ts): void
+    {
+        $dureeSup = Presence::heuresSupMinutes($ts);
+        if ($dureeSup <= 0) {
+            return;
+        }
+
+        $db->prepare(
+            "INSERT INTO heures_supplementaires
+                (employe_id, date, heure_debut, heure_fin, duree_minutes, source)
+             VALUES (?, ?, ?, ?, ?, 'k40')
+             ON DUPLICATE KEY UPDATE heure_fin = VALUES(heure_fin), duree_minutes = VALUES(duree_minutes)"
+        )->execute([$employeId, $date, $date . ' 18:00:00', $ts, $dureeSup]);
     }
 }

@@ -85,6 +85,11 @@ final class Auth
         if ($uri === '/api/auth/me') {
             return 1;
         }
+        // Le kiosque/poste (rang employe) doit pouvoir poller sa propre session
+        // pour détecter un verrouillage forcé (statut passé à 'verrouillee').
+        if ($method === 'GET' && preg_match('#^/api/sessions/\d+$#', $uri) === 1) {
+            return 1;
+        }
         if ($method === 'POST') {
             if (in_array($uri, ['/api/sessions/login', '/api/sessions/identifier', '/api/pointages', '/api/sync'], true)) {
                 return 1;

@@ -33,6 +33,27 @@ final class SessionController
     }
 
     /**
+     * Détail d'une session (colonnes explicites). Sert au kiosque/poste pour
+     * détecter un verrouillage forcé : quand le K40 a marqué la personne « partie »,
+     * le statut passe à 'verrouillee'. 404 si la session est introuvable.
+     */
+    public function show(array $params): void
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT id, employe_id, poste_travail_id, statut, heure_debut, heure_fin
+             FROM session_travail WHERE id = ?'
+        );
+        $stmt->execute([(int) $params['id']]);
+        $session = $stmt->fetch();
+
+        if (!$session) {
+            Response::error('Session introuvable', 404);
+        }
+
+        Response::json($session);
+    }
+
+    /**
      * Ouverture de session : Matricule + Code PIN (+ empreinte validée côté device).
      * Vérifie PIN, autorisation sur le poste, puis ouvre la session.
      */
@@ -90,7 +111,10 @@ final class SessionController
         $empreinteOk = !empty($body['empreinte_ok']);
         $methodeAuth = $empreinteOk ? 'pin+empreinte' : 'pin';
 
-        // 6) Ouverture de session
+        // 6) Session unique : on ferme d'abord toute session ouverte de l'employé
+        //    sur un autre poste (le nouveau login « gagne »), puis on ouvre.
+        $this->fermerSessionsOuvertes($empId);
+
         $now = date('Y-m-d H:i:s');
         $stmt = $db->prepare(
             'INSERT INTO session_travail (employe_id, poste_travail_id, heure_debut, methode_auth, autorisation_ok, statut)
@@ -173,7 +197,10 @@ final class SessionController
         $empreinteOk = !empty($body['empreinte_ok']);
         $methodeAuth = $empreinteOk ? 'pin+empreinte' : 'pin';
 
-        // 5) Ouverture de session
+        // 5) Session unique : on ferme d'abord toute session ouverte de l'employé
+        //    sur un autre poste (le nouveau login « gagne »), puis on ouvre.
+        $this->fermerSessionsOuvertes($empId);
+
         $now = date('Y-m-d H:i:s');
         $stmt = $db->prepare(
             'INSERT INTO session_travail (employe_id, poste_travail_id, heure_debut, methode_auth, autorisation_ok, statut)
@@ -298,6 +325,10 @@ final class SessionController
         }
 
         // 4) Ouverture de session (même logique que login())
+        //    Session unique : on ferme d'abord toute session ouverte de l'employé
+        //    sur un autre poste (le nouveau login « gagne »), puis on ouvre.
+        $this->fermerSessionsOuvertes($empId);
+
         $now = date('Y-m-d H:i:s');
         $stmt = $db->prepare(
             'INSERT INTO session_travail (employe_id, poste_travail_id, heure_debut, methode_auth, autorisation_ok, statut)
@@ -475,6 +506,31 @@ final class SessionController
         $stmt->execute([$id]);
 
         return $stmt->fetch() ?: null;
+    }
+
+    /**
+     * Session unique par employé : ferme toutes les sessions encore 'ouverte' de
+     * cet employé (typiquement sur un AUTRE poste) avant d'en ouvrir une nouvelle.
+     * Le nouveau login « gagne » ; l'ancien poste, en pollant GET /api/sessions/{id},
+     * verra statut='fermee' et reviendra à l'écran de login (déconnexion auto).
+     * Libère aussi le poste de chaque session fermée. Requêtes préparées.
+     */
+    private function fermerSessionsOuvertes(int $employeId): void
+    {
+        $db = Database::connection();
+        $now = date('Y-m-d H:i:s');
+
+        $stmt = $db->prepare(
+            "SELECT id, poste_travail_id FROM session_travail WHERE employe_id = ? AND statut = 'ouverte'"
+        );
+        $stmt->execute([$employeId]);
+
+        foreach ($stmt->fetchAll() as $ancienne) {
+            $db->prepare("UPDATE session_travail SET statut = 'fermee', heure_fin = ? WHERE id = ?")
+                ->execute([$now, $ancienne['id']]);
+            $db->prepare("UPDATE poste_travail SET statut = 'libre' WHERE id = ?")
+                ->execute([$ancienne['poste_travail_id']]);
+        }
     }
 
     private function superieurDe(int $employeId): ?int
