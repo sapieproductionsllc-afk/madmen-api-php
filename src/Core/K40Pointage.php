@@ -124,9 +124,10 @@ final class K40Pointage
             )->execute([$resume['sortie'], $resume['present'], $resume['pause'], $resume['nb_pauses'], (int) $pid]);
         }
 
-        // 5) Une SORTIE (pause OU départ) verrouille le PC et met à jour les heures sup.
+        // 5) Une SORTIE (pause OU départ) met à jour les heures sup. Le K40 NE
+        // touche PAS au kiosque (PC) : les deux systèmes sont 100% indépendants
+        // (le PC ne se verrouille que par inactivité ou déconnexion).
         if ($type === 'sortie') {
-            self::verrouillerSessions($db, $employeId, $ts);
             self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie'], $horaire);
         }
     }
@@ -159,52 +160,6 @@ final class K40Pointage
         }
 
         return ['entree' => $entree, 'sortie' => $sortie, 'present' => $present, 'pause' => $pause, 'nb_pauses' => $nbPauses];
-    }
-
-    /**
-     * Départ K40 : verrouille toutes les sessions ouvertes de l'employé, met les
-     * postes concernés en 'verrouille' et ouvre un incident d'inactivité par session.
-     */
-    private static function verrouillerSessions(PDO $db, int $employeId, string $ts): void
-    {
-        // Récupère les sessions ouvertes AVANT verrouillage (pour leurs ids/postes).
-        $stmt = $db->prepare(
-            "SELECT id, poste_travail_id FROM session_travail WHERE employe_id = ? AND statut = 'ouverte'"
-        );
-        $stmt->execute([$employeId]);
-        $sessions = $stmt->fetchAll();
-
-        if (!$sessions) {
-            return;
-        }
-
-        $db->prepare(
-            "UPDATE session_travail SET statut = 'verrouillee' WHERE employe_id = ? AND statut = 'ouverte'"
-        )->execute([$employeId]);
-
-        $verrouillePoste = $db->prepare(
-            "UPDATE poste_travail SET statut = 'verrouille' WHERE id = ?"
-        );
-        $ouvreIncident = $db->prepare(
-            'INSERT INTO incident_inactivite
-                (session_id, employe_id, poste_travail_id, heure_verrouillage, justification, statut)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-
-        foreach ($sessions as $session) {
-            $posteId = $session['poste_travail_id'] !== null ? (int) $session['poste_travail_id'] : null;
-            if ($posteId !== null) {
-                $verrouillePoste->execute([$posteId]);
-            }
-            $ouvreIncident->execute([
-                (int) $session['id'],
-                $employeId,
-                $posteId,
-                $ts,
-                'Parti du bureau (pointage K40)',
-                'ouvert',
-            ]);
-        }
     }
 
     /**
