@@ -548,6 +548,11 @@ final class SessionController
      */
     private function tropDeTentatives(int $posteId): bool
     {
+        // Désactivable via .env : BRUTE_FORCE_ENABLED=false => jamais de blocage.
+        if (!\MadMen\Core\Env::bool('BRUTE_FORCE_ENABLED', true)) {
+            return false;
+        }
+
         $depuis = date('Y-m-d H:i:s', time() - self::FENETRE_ECHECS_MINUTES * 60);
 
         $stmt = Database::connection()->prepare(
