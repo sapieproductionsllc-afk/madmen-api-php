@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\K40;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDOException;
+use Throwable;
 
 final class EmployeController
 {
@@ -87,7 +89,32 @@ final class EmployeController
         }
 
         $id = (int) Database::connection()->lastInsertId();
+
+        // Auto-push de l'identité vers le K40 (best-effort : ne fait jamais échouer
+        // la création si le terminal est désactivé/injoignable).
+        $this->pushK40Silencieux($id, (string) $body['nom'], (string) $body['prenom']);
+
         Response::json($this->find($id) ?? [], 201);
+    }
+
+    /**
+     * Pousse l'identité (uid = id employé, nom) vers le K40. Silencieux : toute
+     * erreur (K40 off/injoignable) est ignorée, l'employé reste créé.
+     */
+    private function pushK40Silencieux(int $id, string $nom, string $prenom): void
+    {
+        @set_time_limit(0);
+        try {
+            $zk = K40::connect();
+            $name = mb_substr($prenom . ' ' . $nom, 0, 24);
+            $zk->setUser($id, (string) $id, $name, '');
+            @$zk->disconnect();
+            Database::connection()
+                ->prepare('UPDATE employe SET device_user_id = ? WHERE id = ?')
+                ->execute([(string) $id, $id]);
+        } catch (Throwable $e) {
+            error_log('Auto-push K40 (création employé #' . $id . ') ignoré : ' . $e->getMessage());
+        }
     }
 
     public function update(array $params): void

@@ -5,9 +5,11 @@ namespace MadMen\Controllers;
 
 use MadMen\Core\Crypto;
 use MadMen\Core\Database;
+use MadMen\Core\K40;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDOException;
+use Throwable;
 
 final class BiometrieController
 {
@@ -82,13 +84,45 @@ final class BiometrieController
         }
 
         $id = (int) Database::connection()->lastInsertId();
+
+        // Filet de sécurité : s'assure que l'employé existe (identité) sur le K40 au
+        // moment de l'enrôlement. Best-effort (K40 off/injoignable -> ignoré).
+        // NB : le GABARIT d'empreinte n'est PAS poussé — la lib rats/zkteco ne sait
+        // pas écrire les empreintes (setFingerprint non fonctionnel). Pour pointer au
+        // doigt sur le K40, enrôler l'empreinte DIRECTEMENT sur le terminal.
+        $this->pushK40Identite($employeId);
+
         Response::json([
             'message' => 'Biométrie enrôlée',
             'id'      => $id,
             'type'    => $type,
             'doigt'   => $doigt,
             'badge_rfid' => $badge,
+            'note_k40' => 'Identité synchronisée au K40 si disponible ; enrôler l\'empreinte directement sur le terminal pour le pointage.',
         ], 201);
+    }
+
+    /** Pousse l'identité de l'employé vers le K40 (best-effort, silencieux). */
+    private function pushK40Identite(int $employeId): void
+    {
+        @set_time_limit(0);
+        try {
+            $stmt = Database::connection()->prepare('SELECT nom, prenom FROM employe WHERE id = ?');
+            $stmt->execute([$employeId]);
+            $emp = $stmt->fetch();
+            if (!$emp) {
+                return;
+            }
+            $zk = K40::connect();
+            $name = mb_substr($emp['prenom'] . ' ' . $emp['nom'], 0, 24);
+            $zk->setUser($employeId, (string) $employeId, $name, '');
+            @$zk->disconnect();
+            Database::connection()
+                ->prepare('UPDATE employe SET device_user_id = ? WHERE id = ?')
+                ->execute([(string) $employeId, $employeId]);
+        } catch (Throwable $e) {
+            error_log('Push K40 identité (enrôlement employé #' . $employeId . ') ignoré : ' . $e->getMessage());
+        }
     }
 
     /** Supprimer une biométrie enrôlée. */
