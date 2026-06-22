@@ -1,0 +1,48 @@
+# Stack MadMen API — à lancer depuis la racine du repo cloné :
+#   docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
+# Le même .env sert (1) à interpoler ${DB_*} ici et (2) à configurer l'app (monté dans le conteneur).
+name: madmen
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: madmen-api
+    container_name: madmen-api
+    restart: unless-stopped
+    volumes:
+      - ../.env:/app/.env:ro                  # config + secrets (hors image)
+      - madmen_uploads:/app/storage/uploads   # pièces jointes messagerie (persistées)
+    networks: [ssm, internal]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4
+    container_name: madmen-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD manquant dans .env}
+      MYSQL_DATABASE: ${DB_NAME:-madmen}
+      MYSQL_USER: ${DB_USER:-madmen}
+      MYSQL_PASSWORD: ${DB_PASS:?DB_PASS manquant dans .env}
+    volumes:
+      - madmen_db:/var/lib/mysql
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+networks:
+  ssm:                  # réseau du Caddy existant -> Caddy peut joindre 'madmen-api'
+    external: true
+    name: ssm-cloud_ssm
+  internal:             # réseau privé API <-> base (non exposé)
+
+volumes:
+  madmen_db:
+  madmen_uploads:

@@ -1,0 +1,12 @@
+# Hors image : on réinstalle les deps proprement et on monte le .env au runtime.
+.git
+.gitignore
+.env
+.env.*
+vendor/
+node_modules/
+storage/uploads/*
+*.log
+.idea
+.vscode
+backups/
