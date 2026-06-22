@@ -15,7 +15,7 @@ use MadMen\Core\Response;
  */
 final class DemandeController
 {
-    private const TYPES = ['avance', 'conge', 'formation', 'attestation', 'autre'];
+    private const TYPES = ['avance', 'conge', 'permission', 'absence', 'formation', 'attestation', 'autre'];
 
     // ---------------------------------------------------------------- employé
 
@@ -31,15 +31,35 @@ final class DemandeController
         Response::json(array_map([$this, 'formate'], $stmt->fetchAll()));
     }
 
-    /** POST /api/me/demandes — créer une demande { type, objet, montant?, date_debut?, date_fin?, details? }. */
+    /** POST /api/me/demandes — créer MA demande { type, objet, montant?, date_debut?, date_fin?, details? }. */
     public function creer(): void
     {
-        $id = $this->employeId();
-        $body = Request::body();
+        $this->inserer($this->employeId(), Request::body());
+    }
 
+    /** POST /api/demandes — créer une demande AU NOM d'un agent (manager, #7.2). */
+    public function creerPour(): void
+    {
+        $body = Request::body();
+        $employeId = isset($body['employe_id']) && ctype_digit((string) $body['employe_id']) ? (int) $body['employe_id'] : 0;
+        if ($employeId <= 0) {
+            Response::error("'employe_id' est obligatoire (création au nom d'un agent)", 422);
+        }
+        $stmt = Database::connection()->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $stmt->execute([$employeId]);
+        if (!$stmt->fetchColumn()) {
+            Response::error('Employé introuvable', 422);
+        }
+
+        $this->inserer($employeId, $body);
+    }
+
+    /** Validation commune + insertion d'une demande pour un employé donné (réponse 201). */
+    private function inserer(int $employeId, array $body): void
+    {
         $type = $body['type'] ?? null;
         if (!in_array($type, self::TYPES, true)) {
-            Response::error("'type' invalide (avance, conge, formation, attestation, autre)", 422);
+            Response::error("'type' invalide (" . implode(', ', self::TYPES) . ')', 422);
         }
         $objet = trim((string) ($body['objet'] ?? ''));
         if ($objet === '') {
@@ -56,11 +76,12 @@ final class DemandeController
             }
             $montant = round((float) $body['montant'], 2);
         }
-        if ($type === 'conge') {
+        // Congé / Permission / Absence : période obligatoire.
+        if (in_array($type, ['conge', 'permission', 'absence'], true)) {
             $dateDebut = $this->dateValide($body['date_debut'] ?? null);
             $dateFin = $this->dateValide($body['date_fin'] ?? null);
             if ($dateDebut === null || $dateFin === null) {
-                Response::error("'date_debut' et 'date_fin' (YYYY-MM-DD) sont requis pour un congé", 422);
+                Response::error("'date_debut' et 'date_fin' (YYYY-MM-DD) sont requis pour ce type", 422);
             }
             if ($dateFin < $dateDebut) {
                 Response::error("'date_fin' doit être postérieure ou égale à 'date_debut'", 422);
@@ -73,7 +94,7 @@ final class DemandeController
         $db->prepare(
             'INSERT INTO demande (employe_id, type, objet, details, montant, date_debut, date_fin, statut)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$id, $type, $objet, $details ?: null, $montant, $dateDebut, $dateFin, 'en_attente']);
+        )->execute([$employeId, $type, $objet, $details ?: null, $montant, $dateDebut, $dateFin, 'en_attente']);
 
         $newId = (int) $db->lastInsertId();
         $stmt = $db->prepare('SELECT * FROM demande WHERE id = ?');

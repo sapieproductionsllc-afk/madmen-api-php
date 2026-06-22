@@ -228,6 +228,7 @@ $router->get('/api/me/prets', [PretController::class, 'mesPrets']);
 
 // --- API : Demandes (côté manager : liste + décision) ---
 $router->get('/api/demandes', [DemandeController::class, 'index']);
+$router->post('/api/demandes', [DemandeController::class, 'creerPour']);
 $router->post('/api/demandes/{id}/decision', [DemandeController::class, 'decision']);
 
 // --- API : Prêts / avances (gestion manager — données financières) ---

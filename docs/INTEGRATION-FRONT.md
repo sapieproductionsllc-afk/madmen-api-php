@@ -189,3 +189,34 @@ productivité (`/classement`, `/{id}`), heures sup, biométrie/enrôlement, noti
 
 > Côté **front** (hors de cette passe, **ne pas toucher au design**) : client API (`src/lib/api.js`),
 > config `VITE_API_URL`, réécriture de l'auth, puis câblage page par page avec mappers de forme.
+
+---
+
+## 8. Proposition de FUSION des deux systèmes de congés (#7.3 — à valider avec le collègue)
+
+> **Fait à ce stade (validé) :** types `permission`/`absence` ajoutés au System A (migration 049) +
+> création d'une demande par un manager au nom d'un agent (`POST /api/demandes`). **La fusion ci-dessous
+> n'est PAS implémentée** — c'est une proposition à trancher (le System B est celui du collègue).
+
+Deux systèmes coexistent dans la base :
+
+| | **A — `demande`** (générique) | **B — `demande_conge` + `solde_conge` + `type_conge`** (collègue) |
+|---|---|---|
+| Couvre | avance, congé, **permission**, **absence**, formation, attestation, autre | **congés typés** uniquement |
+| Décompte de jours | non | **oui** (`nb_jours`) |
+| Solde annuel (acquis/pris) | non | **oui** (`solde_conge`) |
+| Types de congé | un seul `conge` | **catalogue** `type_conge` (annuel, maladie, sans solde, `paye` o/n) |
+| Exposé en API | **oui** (`/api/demandes`, `/api/me/demandes`) | **non** (aucune route) |
+
+**➡️ Recommandation : option « guichet unique » (B intégré dans A).**
+Le dashboard ne parle qu'à **`/api/demandes`** (simple à câbler). Quand une demande de **type `conge` est
+APPROUVÉE**, l'API **crée automatiquement** la `demande_conge` correspondante (avec `type_conge_id`) et
+**décrémente `solde_conge`**. Résultat : une seule UI/route côté front, et le **système de solde du collègue
+devient le registre comptable** des congés (zéro double saisie).
+
+**Alternative : option « séparée ».** Congés (avec décompte) → exposer le System B via un `CongeController`
+(`/api/conges`, `/api/employes/{id}/solde-conge`) ; le reste (avance/permission/absence…) → System A.
+Plus « propre » mais **deux UIs** à câbler.
+
+**À décider avec le collègue :** option unique (recommandée) ou séparée ? mapping `conge` → quel `type_conge`
+par défaut ? décrémenter le solde à l'approbation ? Tant que ce n'est pas tranché, **je ne touche pas au System B**.
