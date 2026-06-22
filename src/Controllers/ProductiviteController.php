@@ -109,11 +109,47 @@ final class ProductiviteController
         );
         $serieStmt->execute($qp);
 
+        // Rang de l'employé parmi tous (même période) + effectif classé.
+        [$gWhere, $gp] = $this->periodeWhere('date');
+        $gWhereSql = $gWhere ? 'WHERE ' . implode(' AND ', $gWhere) : '';
+
+        $totalStmt = $db->prepare("SELECT COUNT(DISTINCT employe_id) FROM productivite_jour $gWhereSql");
+        $totalStmt->execute($gp);
+        $total = (int) $totalStmt->fetchColumn();
+
+        $rangStmt = $db->prepare(
+            "SELECT COUNT(*) FROM (
+                SELECT employe_id FROM productivite_jour $gWhereSql
+                GROUP BY employe_id HAVING AVG(taux_productivite) > :mt
+             ) sup"
+        );
+        $rgp = $gp;
+        $rgp['mt'] = (float) ($resume['taux_moyen'] ?? 0);
+        $rangStmt->execute($rgp);
+        $rang = $total > 0 ? ((int) $rangStmt->fetchColumn()) + 1 : 0;
+
+        // Tendance : moyenne 7 derniers jours vs les 7 précédents (%), pour cet employé.
+        $tStmt = $db->prepare(
+            "SELECT
+                AVG(CASE WHEN date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN taux_productivite END) AS cur,
+                AVG(CASE WHEN date <  DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                          AND date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) THEN taux_productivite END) AS prev
+             FROM productivite_jour WHERE employe_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)"
+        );
+        $tStmt->execute([$id]);
+        $t = $tStmt->fetch() ?: [];
+        $tcur = (float) ($t['cur'] ?? 0);
+        $tprev = (float) ($t['prev'] ?? 0);
+        $tendance = $tprev > 0 ? round(($tcur - $tprev) / $tprev * 100, 1) : 0.0;
+
         Response::json([
-            'employe' => $employe,
-            'periode' => Request::query('periode', 'tout'),
-            'resume'  => $resume,
-            'serie'   => $serieStmt->fetchAll(),
+            'employe'  => $employe,
+            'periode'  => Request::query('periode', 'tout'),
+            'resume'   => $resume,
+            'rang'     => $rang,
+            'total'    => $total,
+            'tendance' => $tendance,
+            'serie'    => $serieStmt->fetchAll(),
         ]);
     }
 

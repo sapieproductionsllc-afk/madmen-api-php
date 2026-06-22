@@ -4,10 +4,12 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Identite;
 use MadMen\Core\K40;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDOException;
+use RuntimeException;
 use Throwable;
 
 final class EmployeController
@@ -15,7 +17,7 @@ final class EmployeController
     /** Colonnes renvoyées (jamais code_pin_hash). */
     private const COLUMNS = 'id, matricule, nom, prenom, photo_url, poste_id, departement_id,
         superieur_id, telephone, adresse, contact_urgence_nom, contact_urgence_tel,
-        salaire, statut, created_at';
+        contact_urgence_lien, salaire, statut, created_at';
 
     /**
      * Lecture ENRICHIE (additive) pour le dashboard : colonnes employé (préfixées e.)
@@ -24,7 +26,8 @@ final class EmployeController
      */
     private const SELECT_ENRICHED = "e.id, e.matricule, e.nom, e.prenom, e.photo_url,
         e.poste_id, e.departement_id, e.superieur_id, e.telephone, e.email, e.adresse,
-        e.contact_urgence_nom, e.contact_urgence_tel, e.salaire, e.statut, e.role, e.created_at,
+        e.contact_urgence_nom, e.contact_urgence_tel, e.contact_urgence_lien,
+        e.salaire, e.statut, e.role, e.created_at,
         TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
         p.intitule AS poste_libelle,
         d.nom AS departement_nom,
@@ -40,7 +43,7 @@ final class EmployeController
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
         'superieur_id', 'telephone', 'email', 'adresse', 'contact_urgence_nom',
-        'contact_urgence_tel', 'salaire', 'statut',
+        'contact_urgence_tel', 'contact_urgence_lien', 'salaire', 'statut',
     ];
 
     public function index(): void
@@ -78,41 +81,95 @@ final class EmployeController
     {
         $body = Request::body();
 
-        foreach (['matricule', 'nom', 'prenom', 'code_pin'] as $required) {
+        // Seuls nom + prénom sont requis : le matricule est auto-généré (sauf si fourni),
+        // et le PIN est TOUJOURS généré automatiquement (un 'code_pin' entrant est ignoré).
+        foreach (['nom', 'prenom'] as $required) {
             if (empty($body[$required])) {
                 Response::error("Le champ '$required' est obligatoire", 422);
             }
         }
 
-        // Le PIN doit être composé de 4 à 8 chiffres.
-        if (!preg_match('/^\d{4,8}$/', (string) $body['code_pin'])) {
-            Response::error("Le champ 'code_pin' doit contenir entre 4 et 8 chiffres", 422);
+        $db = Database::connection();
+
+        // PIN unique généré côté serveur, renvoyé EN CLAIR une seule fois.
+        try {
+            $pin = Identite::genererPinUnique($db);
+        } catch (RuntimeException $e) {
+            Response::error('Impossible de générer un PIN unique (espace saturé)', 507);
         }
 
         $data = $this->filterFillable($body);
-        $data['code_pin_hash'] = password_hash((string) $body['code_pin'], PASSWORD_BCRYPT);
+        $matriculeFourni = !empty($data['matricule']);
+        if (!$matriculeFourni) {
+            $data['matricule'] = Identite::prochainMatricule($db);
+        }
+        $data['code_pin_hash'] = password_hash($pin, PASSWORD_BCRYPT);
 
         $cols = array_keys($data);
         $placeholders = array_map(static fn ($c) => ":$c", $cols);
-
         $sql = 'INSERT INTO employe (' . implode(', ', $cols) . ')
                 VALUES (' . implode(', ', $placeholders) . ')';
 
-        try {
-            $stmt = Database::connection()->prepare($sql);
-            $stmt->execute($data);
-        } catch (PDOException $e) {
-            self::erreurIntegrite($e); // message précis (doublon vs clé étrangère) ; relance si autre
-            throw $e;
+        // Matricule auto : on régénère et on réessaie en cas de collision concurrente.
+        $id = null;
+        for ($t = 0, $max = $matriculeFourni ? 1 : 5; $t < $max; $t++) {
+            try {
+                $stmt = $db->prepare($sql);
+                $stmt->execute($data);
+                $id = (int) $db->lastInsertId();
+                break;
+            } catch (PDOException $e) {
+                $doublonMatricule = ($e->errorInfo[1] ?? null) === 1062
+                    && str_contains((string) ($e->errorInfo[2] ?? ''), 'matricule');
+                if (!$matriculeFourni && $doublonMatricule) {
+                    $data['matricule'] = Identite::prochainMatricule($db);
+                    continue;
+                }
+                self::erreurIntegrite($e); // message précis (doublon vs clé étrangère) ; relance si autre
+                throw $e;
+            }
         }
-
-        $id = (int) Database::connection()->lastInsertId();
+        if ($id === null) {
+            Response::error("Impossible d'attribuer un matricule unique, réessayez", 409);
+        }
 
         // Auto-push de l'identité vers le K40 (best-effort : ne fait jamais échouer
         // la création si le terminal est désactivé/injoignable).
         $this->pushK40Silencieux($id, (string) $body['nom'], (string) $body['prenom']);
 
-        Response::json($this->find($id) ?? [], 201);
+        // Réponse = l'employé créé + le PIN généré (affiché UNE SEULE fois).
+        $employe = $this->find($id) ?? [];
+        $employe['code_pin_genere'] = $pin;
+        Response::json($employe, 201);
+    }
+
+    /**
+     * POST /api/employes/{id}/regenerer-pin — régénère un PIN unique (cas du PIN oublié).
+     * Le PIN étant haché, il ne peut qu'être recréé. Réservé au super_admin (rang 4).
+     */
+    public function regenererPin(array $params): void
+    {
+        $id = (int) $params['id'];
+        $employe = $this->find($id);
+        if ($employe === null) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $db = Database::connection();
+        try {
+            $pin = Identite::genererPinUnique($db);
+        } catch (RuntimeException $e) {
+            Response::error('Impossible de générer un PIN unique (espace saturé)', 507);
+        }
+
+        $db->prepare('UPDATE employe SET code_pin_hash = ? WHERE id = ?')
+           ->execute([password_hash($pin, PASSWORD_BCRYPT), $id]);
+
+        Response::json([
+            'id'              => $id,
+            'matricule'       => $employe['matricule'] ?? null,
+            'code_pin_genere' => $pin,
+        ]);
     }
 
     /**
@@ -187,9 +244,8 @@ final class EmployeController
         $body = Request::body();
         $data = $this->filterFillable($body);
 
-        if (!empty($body['code_pin'])) {
-            $data['code_pin_hash'] = password_hash((string) $body['code_pin'], PASSWORD_BCRYPT);
-        }
+        // Le PIN ne se modifie PAS ici (sinon risque de doublon) : il passe par
+        // POST /api/employes/{id}/regenerer-pin. Un 'code_pin' éventuel est ignoré.
         if ($data === []) {
             Response::error('Aucun champ à mettre à jour', 422);
         }

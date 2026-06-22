@@ -174,6 +174,7 @@ HTML;
 // --- API : Employés ---
 $router->get('/api/employes', [EmployeController::class, 'index']);
 $router->post('/api/employes', [EmployeController::class, 'store']);
+$router->post('/api/employes/{id}/regenerer-pin', [EmployeController::class, 'regenererPin']);
 $router->get('/api/employes/{id}', [EmployeController::class, 'show']);
 $router->put('/api/employes/{id}', [EmployeController::class, 'update']);
 $router->delete('/api/employes/{id}', [EmployeController::class, 'destroy']);
