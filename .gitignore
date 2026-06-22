@@ -9,3 +9,6 @@ Thumbs.db
 # Pièces jointes téléversées (binaires, hors VCS)
 storage/uploads/*
 !storage/uploads/.gitkeep
+
+# Env de production (secrets) — jamais committe
+.env.production
