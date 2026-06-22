@@ -4,7 +4,9 @@
 FROM php:8.4-cli-alpine
 
 # Extensions : PDO MySQL (la base) + sockets (K40 / rats-zkteco).
-RUN docker-php-ext-install pdo_mysql sockets
+# linux-headers fournit linux/sock_diag.h, requis pour compiler l'extension sockets sous Alpine.
+RUN apk add --no-cache linux-headers \
+ && docker-php-ext-install pdo_mysql sockets
 
 # Composer depuis l'image officielle.
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
