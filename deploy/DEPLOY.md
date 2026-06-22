@@ -24,13 +24,23 @@ cd /opt/madmen
 git clone -b feat/controle-activite-fondations https://github.com/sapieproductionsllc-afk/madmen-api-php.git
 cd madmen-api-php
 
-# 2) Créer le .env de prod
-cp deploy/.env.server.example .env
-# Générer les secrets et les coller dans .env (APP_KEY / API_KEY) :
-echo "APP_KEY=$(openssl rand -hex 32)"
-echo "API_KEY=$(openssl rand -hex 24)"
-# Puis éditer .env : coller APP_KEY/API_KEY ci-dessus + choisir DB_PASS et DB_ROOT_PASSWORD.
-nano .env
+# 2) Créer le .env de prod (secrets générés automatiquement)
+cat > .env <<EOF
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=$(openssl rand -hex 32)
+API_KEY=$(openssl rand -hex 24)
+AUTH_ENABLED=true
+BRUTE_FORCE_ENABLED=true
+BIO_SIMULATION=false
+CORS_ORIGIN=*
+DB_HOST=db
+DB_PORT=3306
+DB_NAME=madmen
+DB_USER=madmen
+DB_PASS=$(openssl rand -hex 16)
+DB_ROOT_PASSWORD=$(openssl rand -hex 16)
+EOF
 
 # 3) Démarrer l'API + la base
 docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
@@ -47,17 +57,19 @@ docker compose -f deploy/docker-compose.yml exec api wget -qO- http://localhost:
 
 ## Brancher à Caddy (route + HTTPS)
 
-> Bloc exact + commande de reload fournis séparément après lecture du Caddyfile actuel
-> (`/opt/ssm-cloud/deploy/Caddyfile.prod`). Principe :
+Ajoute le bloc de l'API à la fin du Caddyfile existant (ne touche à rien d'autre) :
+```bash
+sudo tee -a /opt/ssm-cloud/deploy/Caddyfile.prod >/dev/null <<'EOF'
 
-```caddy
+# ── API MadMen ───────────────────────────────────────────
 api-madmen.ssmanager.uk {
     reverse_proxy madmen-api:8000
 }
+EOF
 ```
-Puis recharge Caddy (sans coupure) :
+Recharge Caddy sans coupure (il prend la route + génère le certificat HTTPS) :
 ```bash
-docker exec -w /etc/caddy ssm-caddy caddy reload --config /etc/caddy/Caddyfile
+sudo docker exec -w /etc/caddy ssm-caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
 ## Vérifier en ligne
