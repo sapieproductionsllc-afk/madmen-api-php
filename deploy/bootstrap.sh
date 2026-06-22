@@ -54,6 +54,9 @@ echo ">> Migrations..."
 docker compose -f deploy/docker-compose.yml --env-file .env exec -T api php database/migrate.php migrate \
   || echo "!! Migrations en échec (base pas prête ?) — relance: sudo bash /opt/madmen/madmen-api-php/deploy/bootstrap.sh"
 
+echo ">> Compte admin (créé seulement si aucun super_admin n'existe)..."
+docker compose -f deploy/docker-compose.yml --env-file .env exec -T api php database/creer_admin.php || true
+
 CF=/opt/ssm-cloud/deploy/Caddyfile.prod
 if [ -f "$CF" ] && ! grep -q "api-madmen.ssmanager.uk" "$CF"; then
   cat >> "$CF" <<'EOF'
@@ -63,9 +66,20 @@ api-madmen.ssmanager.uk {
     reverse_proxy madmen-api:8000
 }
 EOF
-  echo ">> Route Caddy ajoutée"
+  echo ">> Route Caddy API ajoutée"
 else
-  echo ">> Route Caddy déjà présente (ou Caddyfile introuvable)"
+  echo ">> Route Caddy API déjà présente (ou Caddyfile introuvable)"
+fi
+
+if [ -f "$CF" ] && ! grep -q "db-madmen.ssmanager.uk" "$CF"; then
+  cat >> "$CF" <<'EOF'
+
+# ── Adminer (tableau de bord DB MadMen) ──────────────────
+db-madmen.ssmanager.uk {
+    reverse_proxy madmen-adminer:8080
+}
+EOF
+  echo ">> Route Caddy Adminer ajoutée"
 fi
 
 echo ">> Reload de Caddy..."

@@ -37,6 +37,18 @@ services:
       timeout: 5s
       retries: 30
 
+  # Tableau de bord web de la base (protégé par le login MySQL).
+  adminer:
+    image: adminer:latest
+    container_name: madmen-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    networks: [ssm, internal]
+    depends_on:
+      db:
+        condition: service_healthy
+
 networks:
   ssm:                  # réseau du Caddy existant -> Caddy peut joindre 'madmen-api'
     external: true
