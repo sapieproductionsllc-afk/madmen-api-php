@@ -28,6 +28,26 @@ final class Presence
         return require dirname(__DIR__, 2) . '/config/presence.php';
     }
 
+    /**
+     * Vrai si l'employé est ACTUELLEMENT au bureau (pointé présent) à l'instant $ts :
+     * son DERNIER passage K40 du jour (horodatage <= $ts) est une « entrée » — donc
+     * il est entré et pas encore ressorti. Sert à n'autoriser l'ouverture d'un poste
+     * qu'aux personnes physiquement présentes (pointage K40 d'arrivée requis).
+     */
+    public static function presentAt(PDO $db, int $employeId, string $ts): bool
+    {
+        $jour = substr($ts, 0, 10); // AAAA-MM-JJ
+        $stmt = $db->prepare(
+            'SELECT type FROM pointage_passage
+             WHERE employe_id = ? AND date = ? AND horodatage <= ?
+             ORDER BY horodatage DESC, id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$employeId, $jour, $ts]);
+
+        return $stmt->fetchColumn() === 'entree';
+    }
+
     /** Horaire global par défaut (config + tolérance 0 + lundi→vendredi). */
     public static function defaultHoraire(): array
     {

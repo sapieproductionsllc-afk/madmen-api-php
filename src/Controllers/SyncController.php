@@ -5,6 +5,7 @@ namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
 use MadMen\Core\Env;
+use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDO;
@@ -109,8 +110,11 @@ final class SyncController
         if (!$this->employeExiste($db, $empId)) {
             return ['erreur:employe inconnu', null];
         }
-        if (!$this->estAutorise($db, $empId, $posteId)) {
-            return ['erreur:non autorisé sur ce poste', null];
+        // Réconciliation présence : une session ouverte HORS-LIGNE n'est acceptée que si
+        // l'employé était pointé présent (au bureau) à son heure d'arrivée. Sinon -> rejet :
+        // la session n'est PAS créée et le temps passé n'est PAS compté.
+        if (!Presence::presentAt($db, $empId, (string) $e['heure_debut'])) {
+            return ['rejete:non pointé présent au bureau', null];
         }
 
         try {

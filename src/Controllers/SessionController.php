@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 
@@ -97,14 +98,13 @@ final class SessionController
         }
         $empId = (int) $employe['id'];
 
-        // 4) Autorisation sur le poste
-        $stmt = $db->prepare('SELECT 1 FROM autorisation_poste WHERE employe_id = ? AND poste_travail_id = ?');
-        $stmt->execute([$empId, $posteId]);
-        if (!$stmt->fetchColumn()) {
-            $this->logTentative($empId, $posteId, 'pin', 'echec', 'Non autorisé sur ce poste');
+        // 4) PRÉSENCE : n'importe quel employé peut ouvrir n'importe quel poste, MAIS
+        //    uniquement s'il est pointé présent au bureau (entrée K40 du jour, pas ressorti).
+        if (!Presence::presentAt($db, $empId, date('Y-m-d H:i:s'))) {
+            $this->logTentative($empId, $posteId, 'pin', 'echec', 'Employé non pointé présent');
             $this->alerte('connexion_refusee', $empId, $posteId, $employe['superieur_id'],
-                'Tentative de connexion refusée (poste non autorisé)');
-            Response::error('Vous n\'êtes pas autorisé sur ce poste', 403);
+                'Connexion refusée : employé non pointé présent au bureau');
+            Response::error("Vous n'avez pas pointé votre arrivée au bureau.", 403);
         }
 
         // 5) Empreinte (2e facteur, validée par le device)
@@ -170,28 +170,40 @@ final class SessionController
             Response::error('Trop de tentatives, réessayez plus tard', 429);
         }
 
-        // 3) Identification : on cherche, parmi les employés autorisés sur ce poste,
-        //    celui dont le PIN correspond (password_verify sur chaque candidat).
-        $stmt = $db->prepare(
-            'SELECT e.id, e.matricule, e.nom, e.prenom, e.superieur_id, e.code_pin_hash
-             FROM employe e
-             JOIN autorisation_poste a ON a.employe_id = e.id AND a.poste_travail_id = ?'
+        // 3) Identification : n'importe quel employé peut ouvrir n'importe quel poste.
+        //    On cherche, parmi TOUS les employés actifs, celui dont le PIN correspond.
+        $stmt = $db->query(
+            "SELECT id, matricule, nom, prenom, superieur_id, code_pin_hash
+             FROM employe WHERE statut <> 'suspendu'"
         );
-        $stmt->execute([$posteId]);
 
-        $employe = null;
+        $matches = [];
         foreach ($stmt->fetchAll() as $candidat) {
             if (password_verify((string) $body['code_pin'], (string) $candidat['code_pin_hash'])) {
-                $employe = $candidat;
-                break;
+                $matches[] = $candidat;
+                if (count($matches) > 1) {
+                    break; // collision détectée : inutile de continuer
+                }
             }
         }
 
-        if (!$employe) {
-            $this->logTentative(null, $posteId, 'pin', 'echec', 'PIN ne correspond à aucun employé autorisé sur ce poste');
+        if (count($matches) === 0) {
+            $this->logTentative(null, $posteId, 'pin', 'echec', 'PIN ne correspond à aucun employé');
             Response::error('PIN invalide', 401);
         }
+        if (count($matches) > 1) {
+            $this->logTentative(null, $posteId, 'pin', 'echec', 'PIN partagé par plusieurs employés');
+            Response::error('Ce PIN est utilisé par plusieurs comptes : contactez l\'administrateur.', 409);
+        }
+        $employe = $matches[0];
         $empId = (int) $employe['id'];
+
+        // 3bis) PRÉSENCE : on n'ouvre le poste que si l'employé est pointé présent au
+        //       bureau (entrée K40 du jour, pas encore ressorti). Sinon -> refus.
+        if (!Presence::presentAt($db, $empId, date('Y-m-d H:i:s'))) {
+            $this->logTentative($empId, $posteId, 'pin', 'echec', 'Employé non pointé présent');
+            Response::error("Vous n'avez pas pointé votre arrivée au bureau.", 403);
+        }
 
         // 4) Empreinte (2e facteur, validée par le device)
         $empreinteOk = !empty($body['empreinte_ok']);
@@ -265,18 +277,18 @@ final class SessionController
                 'SELECT e.id, e.matricule, e.nom, e.prenom, e.superieur_id
                  FROM employe e
                  JOIN employe_biometrie b ON b.employe_id = e.id AND b.type = \'empreinte\' AND b.actif = 1
-                 JOIN autorisation_poste a ON a.employe_id = e.id AND a.poste_travail_id = ?
+                 WHERE e.statut <> \'suspendu\'
                  ORDER BY e.id
                  LIMIT 1'
             );
-            $stmt->execute([$posteId]);
+            $stmt->execute();
             $employe = $stmt->fetch();
 
             if (!$employe) {
                 $this->logTentative(null, $posteId, 'empreinte', 'echec',
-                    'Aucun employé avec empreinte enrôlée et autorisé sur ce poste (simulation)');
+                    'Aucun employé actif avec empreinte enrôlée (simulation)');
                 Response::error(
-                    'Aucun employé avec empreinte enrôlée n\'est autorisé sur ce poste',
+                    'Aucun employé avec empreinte enrôlée disponible',
                     404
                 );
             }
@@ -314,14 +326,12 @@ final class SessionController
 
         $empId = (int) $employe['id'];
 
-        // 3) Autorisation sur le poste
-        $stmt = $db->prepare('SELECT 1 FROM autorisation_poste WHERE employe_id = ? AND poste_travail_id = ?');
-        $stmt->execute([$empId, $posteId]);
-        if (!$stmt->fetchColumn()) {
-            $this->logTentative($empId, $posteId, 'empreinte', 'echec', 'Non autorisé sur ce poste');
+        // 3) PRÉSENCE : n'importe quel poste, mais seulement si pointé présent au bureau.
+        if (!Presence::presentAt($db, $empId, date('Y-m-d H:i:s'))) {
+            $this->logTentative($empId, $posteId, 'empreinte', 'echec', 'Employé non pointé présent');
             $this->alerte('connexion_refusee', $empId, $posteId, $employe['superieur_id'] ?? null,
-                'Tentative de connexion refusée (poste non autorisé)');
-            Response::error('Vous n\'êtes pas autorisé sur ce poste', 403);
+                'Connexion refusée : employé non pointé présent au bureau');
+            Response::error("Vous n'avez pas pointé votre arrivée au bureau.", 403);
         }
 
         // 4) Ouverture de session (même logique que login())

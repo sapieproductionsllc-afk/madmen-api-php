@@ -9,9 +9,10 @@ use MadMen\Core\Response;
 final class PosteController
 {
     /**
-     * « Roster » d'un poste pour le mode hors-ligne : employés autorisés (avec PIN
-     * haché), motifs et seuils. Le client met ces données en cache chiffré localement
-     * afin de pouvoir authentifier et fonctionner sans réseau.
+     * « Roster » d'un poste pour le mode hors-ligne : TOUS les employés actifs (avec PIN
+     * haché), motifs et seuils. N'importe quel employé peut ouvrir n'importe quel poste ;
+     * le garde « présence » (pointage K40) est appliqué au login (en ligne) et à la
+     * synchro (sessions ouvertes hors-ligne). Le client met ces données en cache local.
      */
     public function roster(array $params): void
     {
@@ -24,13 +25,10 @@ final class PosteController
             Response::error('Poste de travail inconnu', 404);
         }
 
-        $stmt = $db->prepare(
-            'SELECT e.id, e.matricule, e.nom, e.prenom, e.superieur_id, e.code_pin_hash
-             FROM employe e
-             JOIN autorisation_poste a ON a.employe_id = e.id AND a.poste_travail_id = ?
-             WHERE e.statut = \'actif\''
+        $stmt = $db->query(
+            'SELECT id, matricule, nom, prenom, superieur_id, code_pin_hash
+             FROM employe WHERE statut = \'actif\''
         );
-        $stmt->execute([(int) $poste['id']]);
         $employes = $stmt->fetchAll();
 
         $seuils = require dirname(__DIR__, 2) . '/config/postes.php';
