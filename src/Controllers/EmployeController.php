@@ -28,12 +28,14 @@ final class EmployeController
         TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
         p.intitule AS poste_libelle,
         d.nom AS departement_nom,
-        CONCAT(s.prenom, ' ', s.nom) AS manager_nom";
+        CONCAT(s.prenom, ' ', s.nom) AS manager_nom,
+        pt.statut AS today_statut, pt.heure_entree AS today_arrivee, pt.retard_minutes AS today_retard";
 
     private const FROM_JOINS = "FROM employe e
         LEFT JOIN poste p       ON p.id = e.poste_id
         LEFT JOIN departement d ON d.id = e.departement_id
-        LEFT JOIN employe s     ON s.id = e.superieur_id";
+        LEFT JOIN employe s     ON s.id = e.superieur_id
+        LEFT JOIN pointage pt   ON pt.employe_id = e.id AND pt.date = CURDATE()";
 
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
@@ -60,7 +62,7 @@ final class EmployeController
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
-        Response::json($stmt->fetchAll());
+        Response::json(array_map([self::class, 'withToday'], $stmt->fetchAll()));
     }
 
     public function show(array $params): void
@@ -176,8 +178,22 @@ final class EmployeController
     {
         $stmt = Database::connection()->prepare('SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . ' WHERE e.id = :id');
         $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch();
 
-        return $stmt->fetch() ?: null;
+        return $row ? self::withToday($row) : null;
+    }
+
+    /** Imbrique le pointage du jour dans un objet `today` (additif, attendu par le dashboard). */
+    private static function withToday(array $row): array
+    {
+        $row['today'] = [
+            'statut'         => $row['today_statut'] ?? null,
+            'arrivee'        => $row['today_arrivee'] ?? null,
+            'retard_minutes' => isset($row['today_retard']) ? (int) $row['today_retard'] : null,
+        ];
+        unset($row['today_statut'], $row['today_arrivee'], $row['today_retard']);
+
+        return $row;
     }
 
     private function filterFillable(array $body): array

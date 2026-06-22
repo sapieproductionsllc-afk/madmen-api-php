@@ -118,6 +118,48 @@ final class ProductiviteController
     }
 
     /**
+     * GET /api/productivite/global — agrégat ENTREPRISE (bloc haut du dashboard) :
+     * { value, series (12 jours), weeklyGrowth, tempsTravailleMoyen, inactiviteMoyenne }.
+     */
+    public function globale(): void
+    {
+        $db = Database::connection();
+
+        $resume = $db->query(
+            "SELECT ROUND(AVG(taux_productivite), 1) AS value,
+                    ROUND(AVG(temps_travaille_min))  AS temps_travaille_moyen,
+                    ROUND(AVG(temps_inactivite_min)) AS inactivite_moyenne
+             FROM productivite_jour WHERE date >= DATE_SUB(CURDATE(), INTERVAL 12 DAY)"
+        )->fetch() ?: [];
+
+        $serie = $db->query(
+            "SELECT ROUND(AVG(taux_productivite), 1) AS taux
+             FROM productivite_jour WHERE date >= DATE_SUB(CURDATE(), INTERVAL 12 DAY)
+             GROUP BY date ORDER BY date ASC"
+        )->fetchAll();
+        $series = array_map(static fn (array $r): float => (float) $r['taux'], $serie);
+
+        $w = $db->query(
+            "SELECT
+                AVG(CASE WHEN date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN taux_productivite END) AS cur,
+                AVG(CASE WHEN date <  DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                          AND date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) THEN taux_productivite END) AS prev
+             FROM productivite_jour WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)"
+        )->fetch() ?: [];
+        $cur = (float) ($w['cur'] ?? 0);
+        $prev = (float) ($w['prev'] ?? 0);
+        $weeklyGrowth = $prev > 0 ? round(($cur - $prev) / $prev * 100, 1) : 0.0;
+
+        Response::json([
+            'value'               => (float) ($resume['value'] ?? 0),
+            'series'              => $series,
+            'weeklyGrowth'        => $weeklyGrowth,
+            'tempsTravailleMoyen' => (int) ($resume['temps_travaille_moyen'] ?? 0),
+            'inactiviteMoyenne'   => (int) ($resume['inactivite_moyenne'] ?? 0),
+        ]);
+    }
+
+    /**
      * Construit la clause de période à partir de periode|from|to.
      * @return array{0: string[], 1: array<string,mixed>}
      */

@@ -282,6 +282,7 @@ $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']
 
 // --- API : Productivité ---
 $router->get('/api/productivite/classement', [ProductiviteController::class, 'classement']);
+$router->get('/api/productivite/global', [ProductiviteController::class, 'globale']);
 $router->get('/api/productivite/{id}', [ProductiviteController::class, 'show']);
 
 // =====================================================================
