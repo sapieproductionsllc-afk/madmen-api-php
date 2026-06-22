@@ -91,8 +91,22 @@ if (Env::get('APP_ENV') === 'production') {
     header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 }
 
-// CORS : origine restreinte via .env (CORS_ORIGIN). Défaut '*' pour la démo.
-header('Access-Control-Allow-Origin: ' . Env::get('CORS_ORIGIN', '*'));
+// CORS : CORS_ORIGIN peut valoir '*' (dev), UNE origine, ou une LISTE séparée par
+// des virgules. Si la requête provient d'une origine autorisée, on la reflète
+// (indispensable côté navigateur) ; sinon on renvoie la première de la liste.
+$corsConf = trim(Env::get('CORS_ORIGIN', '*'));
+$reqOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($corsConf === '*') {
+    header('Access-Control-Allow-Origin: *');
+} else {
+    $autorisees = array_values(array_filter(array_map('trim', explode(',', $corsConf)), 'strlen'));
+    if ($reqOrigin !== '' && in_array($reqOrigin, $autorisees, true)) {
+        header('Access-Control-Allow-Origin: ' . $reqOrigin);
+    } else {
+        header('Access-Control-Allow-Origin: ' . ($autorisees[0] ?? ''));
+    }
+    header('Vary: Origin');
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
