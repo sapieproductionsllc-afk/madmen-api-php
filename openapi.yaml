@@ -34,6 +34,20 @@ tags:
     description: Terminal de pointage réseau ZKTeco K40 (arrivée/départ par empreinte)
   - name: Synchronisation
     description: Synchro montante offline-first (clients qui rejouent leurs événements bufferisés)
+  - name: Configuration
+    description: Paramètres front et cache hors-ligne des postes
+  - name: Horaires
+    description: Horaire de travail par employé (planning par jour)
+  - name: Paie
+    description: Bulletins et synthèse de paie mensuelle
+  - name: Jours fériés
+    description: Journées payées non comptées comme absence
+  - name: Messagerie
+    description: Communication interne (conversations directes/groupes, pièces jointes)
+  - name: Fichiers
+    description: Pièces jointes de la messagerie (image, audio, PDF, document)
+  - name: Surveillance kiosque
+    description: Journal d'activité du kiosque (sans impact sur la paie)
 
 paths:
   /:
@@ -666,6 +680,340 @@ paths:
         '200': { description: Employé envoyé }
         '404': { $ref: '#/components/responses/NotFound' }
         '502': { description: Terminal injoignable }
+
+  /api/k40/push-all:
+    post:
+      tags: [Pointeuse K40]
+      summary: Pousser tous les employés vers le K40 (une seule connexion)
+      responses:
+        '200': { description: Push groupé effectué }
+        '502': { description: Terminal injoignable }
+  /api/k40/clear-users:
+    post:
+      tags: [Pointeuse K40]
+      summary: Effacer tous les utilisateurs du terminal K40
+      responses:
+        '200': { description: Terminal vidé }
+        '502': { description: Terminal injoignable }
+  /api/k40/push-fingerprints:
+    post:
+      tags: [Pointeuse K40]
+      summary: Pousser les empreintes vers le K40 (pont Python pyzk)
+      responses:
+        '200': { description: Empreintes envoyées }
+        '502': { description: Terminal injoignable }
+  /api/k40/users/{id}:
+    delete:
+      tags: [Pointeuse K40]
+      summary: Retirer un utilisateur du terminal K40
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Utilisateur retiré }
+        '502': { description: Terminal injoignable }
+
+  /api/sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: État d'une session (le poste poll pour détecter un verrouillage forcé)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Session }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/sessions/login-pin:
+    post:
+      tags: [Sessions]
+      summary: Connexion au poste par PIN seul (kiosque)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code_pin, poste_travail_code]
+              properties:
+                code_pin: { type: string, example: "1234" }
+                poste_travail_code: { type: string, example: PC-DIR-01 }
+                empreinte_ok: { type: boolean, default: false }
+      responses:
+        '201': { description: Session ouverte }
+        '401': { description: Identifiants invalides }
+        '403': { description: Non autorisé sur ce poste }
+        '429': { description: Trop de tentatives }
+
+  /api/motifs:
+    get:
+      tags: [Sessions]
+      summary: Motifs d'absence / justification disponibles
+      responses:
+        '200': { description: Liste des motifs }
+  /api/incidents:
+    get:
+      tags: [Sessions]
+      summary: Incidents d'inactivité (verrouillages)
+      responses:
+        '200': { description: Liste des incidents }
+
+  /api/config/postes:
+    get:
+      tags: [Configuration]
+      summary: Paramètres des postes (seuils inactivité/justification, heartbeat)
+      responses:
+        '200': { description: Configuration des postes }
+  /api/postes/{code}/roster:
+    get:
+      tags: [Configuration]
+      summary: Cache hors-ligne d'un poste (employés autorisés + PIN hachés)
+      parameters:
+        - { in: path, name: code, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Roster du poste }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/employes/{id}/horaire:
+    get:
+      tags: [Horaires]
+      summary: Horaire de travail d'un employé (planning par jour)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Horaire de l'employé }
+    put:
+      tags: [Horaires]
+      summary: Définir / mettre à jour l'horaire d'un employé
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tolerance_minutes: { type: integer, example: 10 }
+                planning:
+                  type: object
+                  description: "Map jourISO(1-7) -> {debut,fin} ; jour absent = repos"
+                  example: { "1": { debut: "08:30", fin: "18:00" }, "6": { debut: "08:00", fin: "12:00" } }
+      responses:
+        '200': { description: Horaire enregistré }
+
+  /api/employes/{id}/pointage-manuel:
+    post:
+      tags: [Présence]
+      summary: Saisie manuelle d'un pointage (admin)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '201': { description: Pointage créé }
+  /api/pointages/{id}/passages:
+    get:
+      tags: [Présence]
+      summary: Détail des allers-retours du jour (entrées/sorties, multi-pauses)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Liste des passages }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/heures-supplementaires:
+    get:
+      tags: [Présence]
+      summary: Heures supplémentaires enregistrées
+      responses:
+        '200': { description: Liste }
+
+  /api/paie:
+    get:
+      tags: [Paie]
+      summary: Synthèse de paie de tous les employés actifs
+      parameters:
+        - { in: query, name: mois, schema: { type: string, example: "2026-06" } }
+      responses:
+        '200': { description: Liste de paie }
+        '403': { description: Rôle insuffisant (directeur min.) }
+  /api/employes/{id}/paie:
+    get:
+      tags: [Paie]
+      summary: Bulletin de paie détaillé d'un employé
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: mois, schema: { type: string, example: "2026-06" } }
+      responses:
+        '200': { description: Bulletin de paie }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/jours-feries:
+    get:
+      tags: [Jours fériés]
+      summary: Liste des jours fériés
+      responses:
+        '200': { description: Liste }
+    post:
+      tags: [Jours fériés]
+      summary: Ajouter un jour férié (super_admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, libelle]
+              properties:
+                date: { type: string, format: date }
+                libelle: { type: string, example: "Fête du Travail" }
+      responses:
+        '201': { description: Créé }
+  /api/jours-feries/{id}:
+    delete:
+      tags: [Jours fériés]
+      summary: Supprimer un jour férié (super_admin)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Supprimé }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/kiosque-activite:
+    get:
+      tags: [Surveillance kiosque]
+      summary: Journal d'activité du kiosque (temps actif/inactif, motifs) — sans impact paie
+      parameters:
+        - { in: query, name: employe_id, schema: { type: integer } }
+        - { in: query, name: date, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Journal d'activité }
+
+  /api/conversations:
+    get:
+      tags: [Messagerie]
+      summary: Mes conversations (dernier message + non-lus)
+      responses:
+        '200': { description: Liste des conversations }
+    post:
+      tags: [Messagerie]
+      summary: Créer une conversation (directe ou groupe)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membres]
+              properties:
+                type: { type: string, enum: [direct, groupe], default: direct }
+                nom: { type: string, description: "Obligatoire pour un groupe" }
+                membres: { type: array, items: { type: integer } }
+      responses:
+        '201': { description: Conversation créée }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conversations/{id}:
+    get:
+      tags: [Messagerie]
+      summary: Détail d'une conversation + membres
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Conversation }
+        '403': { description: Non membre de la conversation }
+  /api/conversations/{id}/membres:
+    post:
+      tags: [Messagerie]
+      summary: Ajouter des membres (groupe, admin)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                membres: { type: array, items: { type: integer } }
+      responses:
+        '200': { description: Membres ajoutés }
+  /api/conversations/{id}/membres/{employeId}:
+    delete:
+      tags: [Messagerie]
+      summary: Retirer un membre / quitter la conversation
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: employeId, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Membre retiré }
+  /api/conversations/{id}/messages:
+    get:
+      tags: [Messagerie]
+      summary: Historique des messages (paginé)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: before, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer, default: 50 } }
+      responses:
+        '200': { description: Messages }
+    post:
+      tags: [Messagerie]
+      summary: Envoyer un message (texte ou pièce jointe)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string, enum: [texte, image, audio, document, fichier], default: texte }
+                contenu: { type: string }
+                fichier_id: { type: integer, description: "Requis si type != texte" }
+                client_uuid: { type: string, description: "Idempotence offline-first" }
+      responses:
+        '201': { description: Message envoyé }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conversations/{id}/lu:
+    post:
+      tags: [Messagerie]
+      summary: Marquer comme lu (jusqu'au dernier ou message_id)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Marqué comme lu }
+  /api/messages/{id}:
+    delete:
+      tags: [Messagerie]
+      summary: Supprimer son propre message
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Message supprimé }
+        '403': { description: Pas l'auteur du message }
+
+  /api/fichiers:
+    post:
+      tags: [Fichiers]
+      summary: Téléverser une pièce jointe (multipart, champ « fichier »)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                fichier: { type: string, format: binary }
+      responses:
+        '201': { description: Fichier téléversé }
+        '415': { description: Type de fichier non autorisé }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/fichiers/{id}:
+    get:
+      tags: [Fichiers]
+      summary: Télécharger une pièce jointe (réservé aux membres de la conversation)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Binaire du fichier }
+        '403': { description: Accès refusé }
+        '404': { $ref: '#/components/responses/NotFound' }
 
 components:
   securitySchemes:
