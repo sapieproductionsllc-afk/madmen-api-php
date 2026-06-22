@@ -153,6 +153,10 @@ final class Auth
         if ($method === 'GET' && preg_match('#^/api/(paie|employes/\d+/paie)$#', $uri) === 1) {
             return 3;
         }
+        // Demandes côté manager (liste + décision) -> superviseur et au-dessus.
+        if (preg_match('#^/api/demandes#', $uri) === 1) {
+            return 2;
+        }
         if ($method === 'GET' && str_starts_with($uri, '/api/')) {
             return 2; // consultation : superviseur et au-dessus
         }

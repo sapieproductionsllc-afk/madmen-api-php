@@ -52,6 +52,8 @@ use MadMen\Controllers\FichierController;
 use MadMen\Controllers\JourFerieController;
 use MadMen\Controllers\IncidentController;
 use MadMen\Controllers\MeController;
+use MadMen\Controllers\DemandeController;
+use MadMen\Controllers\NotificationController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -195,6 +197,18 @@ $router->get('/api/me/profil', [MeController::class, 'profil']);
 $router->get('/api/me/pointages', [MeController::class, 'pointages']);
 $router->get('/api/me/horaire', [MeController::class, 'horaire']);
 $router->get('/api/me/paie', [MeController::class, 'paie']);
+// Demandes (self-service)
+$router->get('/api/me/demandes', [DemandeController::class, 'mesDemandes']);
+$router->post('/api/me/demandes', [DemandeController::class, 'creer']);
+$router->post('/api/me/demandes/{id}/annuler', [DemandeController::class, 'annuler']);
+// Notifications (self-service)
+$router->get('/api/me/notifications', [NotificationController::class, 'index']);
+$router->post('/api/me/notifications/tout-lire', [NotificationController::class, 'toutLire']);
+$router->post('/api/me/notifications/{id}/lu', [NotificationController::class, 'lire']);
+
+// --- API : Demandes (côté manager : liste + décision) ---
+$router->get('/api/demandes', [DemandeController::class, 'index']);
+$router->post('/api/demandes/{id}/decision', [DemandeController::class, 'decision']);
 $router->post('/api/sessions/identifier', [SessionController::class, 'identifier']);
 $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);
