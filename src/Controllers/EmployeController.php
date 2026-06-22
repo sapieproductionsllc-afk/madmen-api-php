@@ -102,9 +102,7 @@ final class EmployeController
             $stmt = Database::connection()->prepare($sql);
             $stmt->execute($data);
         } catch (PDOException $e) {
-            if ($e->getCode() === '23000') {
-                Response::error('Ce matricule existe déjà', 422);
-            }
+            self::erreurIntegrite($e); // message précis (doublon vs clé étrangère) ; relance si autre
             throw $e;
         }
 
@@ -137,6 +135,48 @@ final class EmployeController
         }
     }
 
+    /**
+     * Traduit une violation d'intégrité (SQLSTATE 23000) en message clair et précis.
+     * Distingue un vrai doublon (1062 : matricule / email / device_user_id) d'une clé
+     * étrangère invalide (1452 : poste / département / supérieur inexistant). Pour toute
+     * autre erreur, ne fait rien : l'appelant relance l'exception (HTTP 500).
+     *
+     * Indispensable car un poste_id/departement_id/superieur_id pointant vers une ligne
+     * inexistante remonte aussi en 23000 et était jadis signalé à tort « matricule existe déjà ».
+     */
+    private static function erreurIntegrite(PDOException $e): void
+    {
+        if ($e->getCode() !== '23000') {
+            return; // pas une violation d'intégrité -> laisse remonter
+        }
+
+        $driverCode = $e->errorInfo[1] ?? null;
+        $detail     = (string) ($e->errorInfo[2] ?? '');
+
+        if ($driverCode === 1062) { // Duplicate entry sur une clé UNIQUE
+            if (str_contains($detail, 'uq_employe_email')) {
+                Response::error('Cet email est déjà utilisé', 422);
+            }
+            if (str_contains($detail, 'uq_employe_device_user_id')) {
+                Response::error("Cet identifiant terminal (device_user_id) est déjà utilisé", 422);
+            }
+            Response::error('Ce matricule existe déjà', 422);
+        }
+
+        if ($driverCode === 1452) { // Foreign key constraint fails : la référence n'existe pas
+            if (str_contains($detail, 'fk_employe_poste')) {
+                Response::error("Le poste sélectionné n'existe pas", 422);
+            }
+            if (str_contains($detail, 'fk_employe_departement')) {
+                Response::error("Le département sélectionné n'existe pas", 422);
+            }
+            if (str_contains($detail, 'fk_employe_superieur')) {
+                Response::error("Le supérieur sélectionné n'existe pas", 422);
+            }
+            Response::error('Référence liée invalide (poste, département ou supérieur inexistant)', 422);
+        }
+    }
+
     public function update(array $params): void
     {
         $id = (int) $params['id'];
@@ -157,8 +197,13 @@ final class EmployeController
         $set = implode(', ', array_map(static fn ($c) => "$c = :$c", array_keys($data)));
         $data['id'] = $id;
 
-        $stmt = Database::connection()->prepare("UPDATE employe SET $set WHERE id = :id");
-        $stmt->execute($data);
+        try {
+            $stmt = Database::connection()->prepare("UPDATE employe SET $set WHERE id = :id");
+            $stmt->execute($data);
+        } catch (PDOException $e) {
+            self::erreurIntegrite($e); // même traduction d'erreur qu'à la création
+            throw $e;
+        }
 
         Response::json($this->find($id) ?? []);
     }
