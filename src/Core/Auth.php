@@ -157,6 +157,10 @@ final class Auth
         if (preg_match('#^/api/demandes#', $uri) === 1) {
             return 2;
         }
+        // Prêts / avances (gestion manager, financier) -> directeur et au-dessus.
+        if (preg_match('#^/api/prets#', $uri) === 1) {
+            return 3;
+        }
         if ($method === 'GET' && str_starts_with($uri, '/api/')) {
             return 2; // consultation : superviseur et au-dessus
         }

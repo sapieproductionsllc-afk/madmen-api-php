@@ -54,6 +54,8 @@ use MadMen\Controllers\IncidentController;
 use MadMen\Controllers\MeController;
 use MadMen\Controllers\DemandeController;
 use MadMen\Controllers\NotificationController;
+use MadMen\Controllers\ObjectifController;
+use MadMen\Controllers\PretController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -205,10 +207,22 @@ $router->post('/api/me/demandes/{id}/annuler', [DemandeController::class, 'annul
 $router->get('/api/me/notifications', [NotificationController::class, 'index']);
 $router->post('/api/me/notifications/tout-lire', [NotificationController::class, 'toutLire']);
 $router->post('/api/me/notifications/{id}/lu', [NotificationController::class, 'lire']);
+// Objectifs (self-service)
+$router->get('/api/me/objectifs', [ObjectifController::class, 'index']);
+$router->post('/api/me/objectifs', [ObjectifController::class, 'creer']);
+$router->put('/api/me/objectifs/{id}', [ObjectifController::class, 'update']);
+$router->delete('/api/me/objectifs/{id}', [ObjectifController::class, 'destroy']);
+// Prêts / avances (lecture employé)
+$router->get('/api/me/prets', [PretController::class, 'mesPrets']);
 
 // --- API : Demandes (côté manager : liste + décision) ---
 $router->get('/api/demandes', [DemandeController::class, 'index']);
 $router->post('/api/demandes/{id}/decision', [DemandeController::class, 'decision']);
+
+// --- API : Prêts / avances (gestion manager — données financières) ---
+$router->get('/api/prets', [PretController::class, 'index']);
+$router->post('/api/prets', [PretController::class, 'creer']);
+$router->post('/api/prets/{id}/remboursement', [PretController::class, 'remboursement']);
 $router->post('/api/sessions/identifier', [SessionController::class, 'identifier']);
 $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);
