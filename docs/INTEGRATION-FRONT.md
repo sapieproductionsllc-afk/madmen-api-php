@@ -117,8 +117,19 @@ productivité (`/classement`, `/{id}`), heures sup, biométrie/enrôlement, noti
 
 ## 4. ⏸️ À DISCUTER / METTRE DE CÔTÉ (risque ou décision produit)
 
-> **Non implémenté.** À trancher avec le collègue — soit ça **modifie le modèle existant** (risque de casse),
-> soit c'est une **décision produit** (ajouter un champ vs retirer de l'UI).
+### ✔️ Décisions prises (2026-06-22)
+1. **`email`** → **AJOUTÉ** (migration `046`, exposé dans `/api/employes`, `/api/utilisateurs`, `/api/me/profil`). Nullable, unique, **pas** un identifiant de connexion.
+2. **`agence`** → **abandonné**. On garde **`département` + `poste`** (y compris côté front). Aucune entité agence. Au câblage : front `agence` → `departement_nom`.
+3. **Pas une école.** `fonction` = **`poste`** (`poste.intitule`) ; les heures/jours = **`horaire_employe`** (déjà implémenté, migrations 031/032). `matiere` / `tauxHoraire` **supprimés** (placeholders du mock front à nettoyer au câblage).
+4. **Front plus riche** → on **ajoutera des migrations** pour la **composition du salaire** (primes/retenues/avances). Proposition technique : table `paie_ajustement` + `pret` pour les avances (voir réponse).
+5. **Le kiosque ne touche PAS au salaire** (il ne calcule que temps d'activité/inactivité, table `kiosque_activite`, sans impact paie). → **Modifier le modèle de paie est SÛR** côté kiosque.
+6. **Objectifs partagés** → **ARMOIRE** (pas maintenant, créés plus tard si besoin).
+7. **Demandes** → à clarifier (enum `Permission`/`Absence` absent, création par un manager, transition « revenir en attente », doublon `demande` vs `demande_conge`).
+8. **Le kiosque n'utilise PAS la messagerie** (login/lock/activité/sync uniquement). La messagerie = **dashboard (admin) ↔ app employé (user)**. → Ajouter un canal **broadcast** est **SÛR** (aucun impact kiosque). Ma mise en garde initiale était trop prudente.
+9. **Export PDF** → proposition (client-side vs `dompdf` serveur) ; candidat ARMOIRE.
+10. `pointage.statut = 'conge'` **existe déjà** (aucun conflit) ; **`% de travail`** dérivable. Seul vrai conflit : **règle retard→retenue** (front « 2/min après 5 min » vs calcul API) à **unifier**.
+
+> Les items 4, 7, 9, 10 restent à finaliser (propositions ci-dessous / dans la réponse). Le reste est tranché.
 
 1. **`email`** — affiché partout dans le front, **inexistant en base**. → Décision : **ajouter une colonne `email`**
    (migration additive, faible risque) **ou** retirer le champ de l'UI. *Recommandation : colonne nullable.*

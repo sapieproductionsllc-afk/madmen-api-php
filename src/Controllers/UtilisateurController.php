@@ -13,7 +13,7 @@ final class UtilisateurController
      * GET /api/utilisateurs
      * Liste les comptes (lecture depuis employe).
      * derniere_connexion = MAX(session_travail.heure_debut) ou null.
-     * NB : email/agence n'existent pas en base -> non renvoyés.
+     * NB : agence n'existe pas en base -> non renvoyée (décision : on garde département/poste).
      */
     public function index(): void
     {
@@ -21,6 +21,7 @@ final class UtilisateurController
         $sql = "SELECT
                     e.id,
                     e.matricule,
+                    e.email,
                     TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
                     e.role,
                     e.statut,
@@ -39,7 +40,7 @@ final class UtilisateurController
             $params['statut'] = $statut;
         }
 
-        $sql .= ' GROUP BY e.id, e.matricule, e.prenom, e.nom, e.role, e.statut
+        $sql .= ' GROUP BY e.id, e.matricule, e.email, e.prenom, e.nom, e.role, e.statut
                   ORDER BY e.id DESC';
 
         $stmt = $db->prepare($sql);

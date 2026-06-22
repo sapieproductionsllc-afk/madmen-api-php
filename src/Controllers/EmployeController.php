@@ -23,7 +23,7 @@ final class EmployeController
      * N'enlève AUCUN champ existant. Voir docs/INTEGRATION-FRONT.md §3.A.
      */
     private const SELECT_ENRICHED = "e.id, e.matricule, e.nom, e.prenom, e.photo_url,
-        e.poste_id, e.departement_id, e.superieur_id, e.telephone, e.adresse,
+        e.poste_id, e.departement_id, e.superieur_id, e.telephone, e.email, e.adresse,
         e.contact_urgence_nom, e.contact_urgence_tel, e.salaire, e.statut, e.role, e.created_at,
         TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
         p.intitule AS poste_libelle,
@@ -37,7 +37,7 @@ final class EmployeController
 
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
-        'superieur_id', 'telephone', 'adresse', 'contact_urgence_nom',
+        'superieur_id', 'telephone', 'email', 'adresse', 'contact_urgence_nom',
         'contact_urgence_tel', 'salaire', 'statut',
     ];
 

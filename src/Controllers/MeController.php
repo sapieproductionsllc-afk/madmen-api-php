@@ -35,7 +35,7 @@ final class MeController
     {
         $id = $this->employeId();
         $stmt = Database::connection()->prepare(
-            "SELECT e.id, e.matricule, e.nom, e.prenom, e.photo_url, e.telephone, e.adresse,
+            "SELECT e.id, e.matricule, e.nom, e.prenom, e.photo_url, e.telephone, e.email, e.adresse,
                     e.contact_urgence_nom, e.contact_urgence_tel, e.salaire, e.statut, e.role,
                     p.intitule AS poste,
                     d.nom      AS departement,
