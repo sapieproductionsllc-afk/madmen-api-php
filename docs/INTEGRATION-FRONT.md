@@ -22,12 +22,13 @@
 - §3.B : `GET /api/presence/temps-reel` + `GET /api/employes/{id}/presence` (calendrier admin).
 - §3.A : `GET /api/employes(/{id})` enrichi (+`name`, `poste_libelle`, `departement_nom`, `manager_nom`, `role`) ; `GET /api/alertes` enrichi (+`employe_nom`, `severite`) + `POST /api/alertes/{id}/lu` & `POST /api/alertes/tout-lire`.
 
-⏳ **Reste (additif, à faire) :**
-- §3.A : objet `today` (pointage du jour) sur `/api/employes` ; détail `agents[]` sur `/api/dashboard/presence`.
+✅ **Intégration API TERMINÉE (2026-06-22)** — tout l'additif est livré + testé en live :
+- §3.A : objet `today` sur `/api/employes(/{id})` ; `agents[]` sur `/api/dashboard/presence`.
 - §3.D : `GET /api/productivite/global`.
-- `openapi.yaml` : documenter les ~22 nouveaux endpoints.
+- §4 décisions tranchées : `email` ajouté ; **composition salaire** (`paie_ajustement` + avances via `pret`) ; **`% travail`** ; **broadcast** messagerie ; **export** rapport ; **demandes** (`permission`/`absence` + création manager).
+- **`openapi.yaml` synchronisé** (80 chemins → Swagger `/docs`).
 
-⏸️ **Non touché** : tout le **§4** (décisions produit, à voir avec le collègue).
+⏸️ **Seuls restes :** (1) **décision avec le collègue** sur la **fusion des 2 systèmes de congés** (proposition en §8) ; (2) **câblage du front** (passe séparée — **ne pas toucher au design**).
 
 ---
 

@@ -1015,6 +1015,154 @@ paths:
         '403': { description: Accès refusé }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # === Intégration dashboard React — ressources additives (cf. docs/INTEGRATION-FRONT.md) ===
+  /api/depenses:
+    get:
+      tags: [Finance]
+      summary: Dépenses société (filtre ?periode=YYYY-MM)
+      responses: { '200': { description: Liste des dépenses } }
+    post:
+      tags: [Finance]
+      summary: Créer une dépense
+      responses: { '201': { description: Dépense créée }, '422': { description: Validation } }
+  /api/depenses/{id}:
+    delete:
+      tags: [Finance]
+      summary: Supprimer une dépense
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '204': { description: Supprimée }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/paie/{employe_id}/payer:
+    post:
+      tags: [Paie]
+      summary: Marquer la paie d'un employé comme payée
+      parameters: [{ in: path, name: employe_id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Paiement enregistré } }
+  /api/paie/payer-lot:
+    post:
+      tags: [Paie]
+      summary: Payer plusieurs employés en lot
+      responses: { '200': { description: Paiements enregistrés } }
+  /api/mouvements:
+    get:
+      tags: [Finance]
+      summary: Journal des paiements (?periode=)
+      responses: { '200': { description: Mouvements } }
+  /api/finance/synthese:
+    get:
+      tags: [Finance]
+      summary: Synthèse financière (courant/précédent + delta)
+      responses: { '200': { description: Synthèse } }
+  /api/employes/{id}/ajustements:
+    get:
+      tags: [Paie]
+      summary: Primes/retenues d'un employé (?periode=YYYY-MM)
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Ajustements } }
+    post:
+      tags: [Paie]
+      summary: Ajouter une prime ou une retenue
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '201': { description: Créé }, '422': { description: Validation } }
+  /api/ajustements/{id}:
+    delete:
+      tags: [Paie]
+      summary: Supprimer un ajustement
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '204': { description: Supprimé }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/parametres:
+    get:
+      tags: [Configuration]
+      summary: Paramètres globaux de l'entreprise
+      responses: { '200': { description: Paramètres } }
+    put:
+      tags: [Configuration]
+      summary: Mettre à jour des paramètres (upsert clé/valeur)
+      responses: { '200': { description: Paramètres à jour } }
+  /api/utilisateurs:
+    get:
+      tags: [Administration]
+      summary: Comptes du dashboard (lecture depuis employe)
+      responses: { '200': { description: Comptes } }
+  /api/roles:
+    get:
+      tags: [Administration]
+      summary: Rôles distincts avec comptage
+      responses: { '200': { description: Rôles } }
+  /api/appareils:
+    get:
+      tags: [Biométrie]
+      summary: Liste des appareils biométriques
+      responses: { '200': { description: Appareils } }
+  /api/appareils/{id}:
+    get:
+      tags: [Biométrie]
+      summary: Détail d'un appareil
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Appareil }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/rapports/synthese:
+    get:
+      tags: [Rapports]
+      summary: Agrégats (présence, donut, tendance, temps écran)
+      responses: { '200': { description: Synthèse } }
+  /api/rapports/export:
+    get:
+      tags: [Rapports]
+      summary: Export HTML imprimable (PDF navigateur)
+      responses: { '200': { description: Document HTML } }
+  /api/presence/temps-reel:
+    get:
+      tags: [Présence]
+      summary: Statut temps réel par agent (En activité/En pause/Absent/Congé)
+      responses: { '200': { description: Statuts live } }
+  /api/employes/{id}/presence:
+    get:
+      tags: [Présence]
+      summary: Calendrier de présence d'un agent (?mois=YYYY-MM)
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: États par jour }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/employes/{id}/documents:
+    get:
+      tags: [Employés]
+      summary: Documents RH d'un employé
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Documents }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/employes/{id}/historique-rh:
+    get:
+      tags: [Employés]
+      summary: Historique RH d'un employé
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '200': { description: Historique }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/productivite/global:
+    get:
+      tags: [Productivité]
+      summary: Agrégat de productivité entreprise (value, series, weeklyGrowth)
+      responses: { '200': { description: Productivité globale } }
+  /api/alertes/{id}/lu:
+    post:
+      tags: [Alertes]
+      summary: Marquer une alerte comme lue
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { '204': { description: Marquée lue }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/alertes/tout-lire:
+    post:
+      tags: [Alertes]
+      summary: Marquer toutes les alertes comme lues
+      responses: { '200': { description: Marquées } }
+  /api/demandes:
+    get:
+      tags: [Demandes]
+      summary: Liste des demandes pour validation (manager) — ?statut=&employe_id=
+      responses: { '200': { description: Demandes } }
+    post:
+      tags: [Demandes]
+      summary: Créer une demande AU NOM d'un agent (manager) — employe_id requis
+      responses: { '201': { description: Créée }, '422': { description: Validation } }
+  /api/conversations/broadcast:
+    post:
+      tags: [Messagerie]
+      summary: Diffusion « Tout le personnel » (canal annonce)
+      responses: { '201': { description: Annonce créée }, '422': { description: Validation } }
+
 components:
   securitySchemes:
     bearerAuth:
