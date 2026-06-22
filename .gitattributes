@@ -1,0 +1,4 @@
+# Scripts shell et fichiers de déploiement : toujours en LF (exécutés sous Linux).
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
