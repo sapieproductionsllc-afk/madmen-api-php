@@ -8,6 +8,8 @@ info:
     Routes actives : Système (`/`, `/health`), Employés (CRUD complet), Présence,
     Sessions, Alertes et Tableau de bord. Le « Try it out » de Swagger fonctionne en direct.
 servers:
+  - url: https://api-madmen.ssmanager.uk
+    description: Serveur en ligne (production)
   - url: http://127.0.0.1:8000
     description: Serveur de développement local
 
