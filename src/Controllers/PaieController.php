@@ -30,7 +30,7 @@ final class PaieController
             Response::error('Employé introuvable', 404);
         }
 
-        Response::json($this->calcul($db, $employe, $mois));
+        Response::json(self::calculer($db, $employe, $mois));
     }
 
     /** GET /api/paie?mois=YYYY-MM — synthèse de paie de tous les employés actifs. */
@@ -42,7 +42,7 @@ final class PaieController
         $stmt = $db->query("SELECT id, matricule, nom, prenom, salaire FROM employe WHERE statut = 'actif' ORDER BY nom, prenom");
         $out = [];
         foreach ($stmt->fetchAll() as $employe) {
-            $bulletin = $this->calcul($db, $employe, $mois);
+            $bulletin = self::calculer($db, $employe, $mois);
             unset($bulletin['detail']); // synthèse : pas le détail journalier
             $out[] = $bulletin;
         }
@@ -54,7 +54,7 @@ final class PaieController
      * Calcule le bulletin de paie d'un employé pour un mois (YYYY-MM).
      * @return array<string,mixed>
      */
-    private function calcul(PDO $db, array $employe, string $mois): array
+    public static function calculer(PDO $db, array $employe, string $mois): array
     {
         $id = (int) $employe['id'];
         $salaire = (float) $employe['salaire'];

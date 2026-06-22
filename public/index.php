@@ -51,6 +51,7 @@ use MadMen\Controllers\MessagerieController;
 use MadMen\Controllers\FichierController;
 use MadMen\Controllers\JourFerieController;
 use MadMen\Controllers\IncidentController;
+use MadMen\Controllers\MeController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -187,6 +188,12 @@ $router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin'])
 // --- API : Authentification dashboard (login par PIN -> JWT + rôle) ---
 $router->post('/api/auth/login', [AuthController::class, 'login']);
 $router->get('/api/auth/me', [AuthController::class, 'me']);
+
+// --- API : Espace self-service de l'employé connecté (/api/me/*, scopé au jeton) ---
+$router->get('/api/me/profil', [MeController::class, 'profil']);
+$router->get('/api/me/pointages', [MeController::class, 'pointages']);
+$router->get('/api/me/horaire', [MeController::class, 'horaire']);
+$router->get('/api/me/paie', [MeController::class, 'paie']);
 $router->post('/api/sessions/identifier', [SessionController::class, 'identifier']);
 $router->post('/api/sessions/{id}/lock', [SessionController::class, 'lock']);
 $router->post('/api/sessions/{id}/unlock', [SessionController::class, 'unlock']);

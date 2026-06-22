@@ -124,6 +124,11 @@ final class Auth
         if ($uri === '/api/auth/me') {
             return 1;
         }
+        // Espace self-service : /api/me/* est scopé à l'employé du jeton (pas d'IDOR)
+        // -> accessible dès le rang employé.
+        if (str_starts_with($uri, '/api/me/')) {
+            return 1;
+        }
         // Messagerie (conversations, messages, pièces jointes) : tout employé authentifié.
         if (preg_match('#^/api/(conversations|messages|fichiers)#', $uri) === 1) {
             return 1;
