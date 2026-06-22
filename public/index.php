@@ -199,6 +199,7 @@ $router->get('/api/me/profil', [MeController::class, 'profil']);
 $router->get('/api/me/pointages', [MeController::class, 'pointages']);
 $router->get('/api/me/horaire', [MeController::class, 'horaire']);
 $router->get('/api/me/paie', [MeController::class, 'paie']);
+$router->get('/api/me/collegues', [MeController::class, 'collegues']);
 // Demandes (self-service)
 $router->get('/api/me/demandes', [DemandeController::class, 'mesDemandes']);
 $router->post('/api/me/demandes', [DemandeController::class, 'creer']);

@@ -111,4 +111,20 @@ final class MeController
 
         Response::json(PaieController::calculer($db, $employe, $mois));
     }
+
+    /** GET /api/me/collegues — annuaire (pour démarrer une conversation). */
+    public function collegues(): void
+    {
+        $id = $this->employeId();
+        $stmt = Database::connection()->prepare(
+            "SELECT e.id, e.nom, e.prenom, e.photo_url, p.intitule AS poste
+             FROM employe e
+             LEFT JOIN poste p ON p.id = e.poste_id
+             WHERE e.id <> ? AND e.statut <> 'suspendu'
+             ORDER BY e.nom, e.prenom"
+        );
+        $stmt->execute([$id]);
+
+        Response::json($stmt->fetchAll());
+    }
 }
