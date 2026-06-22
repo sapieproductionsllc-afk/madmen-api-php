@@ -35,8 +35,8 @@ final class Auth
         if (in_array($uri, self::PUBLIC_PATHS, true)) {
             return; // Route publique (liste blanche).
         }
-        // Login public + protocole terminal /iclock (authentifié par SN).
-        if ($uri === '/api/auth/login' || str_starts_with($uri, '/iclock/')) {
+        // Login public (matricule+PIN ou PIN seul) + protocole terminal /iclock (auth par SN).
+        if ($uri === '/api/auth/login' || $uri === '/api/auth/login-pin' || str_starts_with($uri, '/iclock/')) {
             return;
         }
 

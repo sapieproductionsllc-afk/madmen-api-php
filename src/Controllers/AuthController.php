@@ -76,6 +76,76 @@ final class AuthController
         ]);
     }
 
+    /**
+     * POST /api/auth/login-pin — { code_pin } → { token, employe }.
+     *
+     * Connexion par PIN SEUL (app employé) : le PIN identifie l'employé parmi TOUS
+     * les comptes. GARDE-FOU de sécurité : si le PIN correspond à PLUSIEURS employés
+     * (collision), on REFUSE (409) — impossible de savoir qui c'est. Throttling par
+     * IP (anti-brute-force) toujours actif. ⚠️ Moins sûr qu'un matricule+PIN : à
+     * réserver à des PIN suffisamment longs/uniques.
+     */
+    public function loginPin(): void
+    {
+        $body = Request::body();
+        if (empty($body['code_pin'])) {
+            Response::error("Le champ 'code_pin' est obligatoire", 422);
+        }
+        $pin = (string) $body['code_pin'];
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+
+        // Anti-brute-force par IP (pas de matricule ici). Toujours actif.
+        if ($this->tropDeTentatives($ip, $ip)) {
+            Response::error('Trop de tentatives, réessayez plus tard', 429);
+        }
+
+        $rows = Database::connection()
+            ->query("SELECT id, matricule, nom, prenom, role, code_pin_hash FROM employe WHERE statut <> 'suspendu'")
+            ->fetchAll();
+
+        $matches = [];
+        foreach ($rows as $e) {
+            if (password_verify($pin, (string) $e['code_pin_hash'])) {
+                $matches[] = $e;
+                if (count($matches) > 1) {
+                    break; // collision détectée : inutile de continuer
+                }
+            }
+        }
+
+        if (count($matches) === 0) {
+            $this->logTentative($ip, $ip, 'echec');
+            Response::error('PIN invalide', 401);
+        }
+        if (count($matches) > 1) {
+            // Plusieurs comptes partagent ce PIN : connexion par PIN seul impossible.
+            $this->logTentative($ip, $ip, 'echec');
+            Response::error(
+                'Ce PIN est utilisé par plusieurs comptes : connexion par PIN seul impossible. Contactez l\'administrateur.',
+                409
+            );
+        }
+
+        $e = $matches[0];
+        $this->logTentative($ip, $ip, 'succes');
+        $token = Jwt::encode([
+            'sub'       => (int) $e['id'],
+            'matricule' => $e['matricule'],
+            'role'      => $e['role'],
+        ]);
+
+        Response::json([
+            'token'   => $token,
+            'employe' => [
+                'id'        => (int) $e['id'],
+                'matricule' => $e['matricule'],
+                'nom'       => $e['nom'],
+                'prenom'    => $e['prenom'],
+                'role'      => $e['role'],
+            ],
+        ]);
+    }
+
     /** GET /api/auth/me — renvoie l'utilisateur courant (depuis le jeton). */
     public function me(): void
     {
