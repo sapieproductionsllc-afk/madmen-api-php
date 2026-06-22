@@ -28,7 +28,7 @@ API_KEY=$(openssl rand -hex 24)
 AUTH_ENABLED=true
 BRUTE_FORCE_ENABLED=true
 BIO_SIMULATION=false
-CORS_ORIGIN=*
+CORS_ORIGIN=http://localhost:5210,http://localhost:5220
 DB_HOST=db
 DB_PORT=3306
 DB_NAME=madmen
@@ -40,6 +40,9 @@ EOF
 else
   echo ">> .env déjà présent"
 fi
+
+# Corrige un .env existant resté en CORS_ORIGIN=* (refusé en production).
+sed -i 's|^CORS_ORIGIN=\*[[:space:]]*$|CORS_ORIGIN=http://localhost:5210,http://localhost:5220|' .env
 
 echo ">> Build + démarrage (API + MySQL)... quelques minutes"
 docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
