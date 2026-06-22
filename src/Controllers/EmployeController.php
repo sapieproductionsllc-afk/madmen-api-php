@@ -17,6 +17,24 @@ final class EmployeController
         superieur_id, telephone, adresse, contact_urgence_nom, contact_urgence_tel,
         salaire, statut, created_at';
 
+    /**
+     * Lecture ENRICHIE (additive) pour le dashboard : colonnes employé (préfixées e.)
+     * + libellés résolus (poste/département/manager) + `name` concaténé + `role`.
+     * N'enlève AUCUN champ existant. Voir docs/INTEGRATION-FRONT.md §3.A.
+     */
+    private const SELECT_ENRICHED = "e.id, e.matricule, e.nom, e.prenom, e.photo_url,
+        e.poste_id, e.departement_id, e.superieur_id, e.telephone, e.adresse,
+        e.contact_urgence_nom, e.contact_urgence_tel, e.salaire, e.statut, e.role, e.created_at,
+        TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
+        p.intitule AS poste_libelle,
+        d.nom AS departement_nom,
+        CONCAT(s.prenom, ' ', s.nom) AS manager_nom";
+
+    private const FROM_JOINS = "FROM employe e
+        LEFT JOIN poste p       ON p.id = e.poste_id
+        LEFT JOIN departement d ON d.id = e.departement_id
+        LEFT JOIN employe s     ON s.id = e.superieur_id";
+
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
         'superieur_id', 'telephone', 'adresse', 'contact_urgence_nom',
@@ -26,18 +44,18 @@ final class EmployeController
     public function index(): void
     {
         $db = Database::connection();
-        $sql = 'SELECT ' . self::COLUMNS . ' FROM employe WHERE 1=1';
+        $sql = 'SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . ' WHERE 1=1';
         $params = [];
 
         if (($dep = Request::query('departement_id')) !== null) {
-            $sql .= ' AND departement_id = :dep';
+            $sql .= ' AND e.departement_id = :dep';
             $params['dep'] = $dep;
         }
         if (($statut = Request::query('statut')) !== null) {
-            $sql .= ' AND statut = :statut';
+            $sql .= ' AND e.statut = :statut';
             $params['statut'] = $statut;
         }
-        $sql .= ' ORDER BY id DESC';
+        $sql .= ' ORDER BY e.id DESC';
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
@@ -156,7 +174,7 @@ final class EmployeController
 
     private function find(int $id): ?array
     {
-        $stmt = Database::connection()->prepare('SELECT ' . self::COLUMNS . ' FROM employe WHERE id = :id');
+        $stmt = Database::connection()->prepare('SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . ' WHERE e.id = :id');
         $stmt->execute(['id' => $id]);
 
         return $stmt->fetch() ?: null;

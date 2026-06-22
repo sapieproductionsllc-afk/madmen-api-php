@@ -56,6 +56,15 @@ use MadMen\Controllers\DemandeController;
 use MadMen\Controllers\NotificationController;
 use MadMen\Controllers\ObjectifController;
 use MadMen\Controllers\PretController;
+// Intégration dashboard React (ressources additives — cf. docs/INTEGRATION-FRONT.md)
+use MadMen\Controllers\DepenseController;
+use MadMen\Controllers\PaiementController;
+use MadMen\Controllers\ParametreController;
+use MadMen\Controllers\UtilisateurController;
+use MadMen\Controllers\AppareilController;
+use MadMen\Controllers\RapportController;
+use MadMen\Controllers\PresenceController;
+use MadMen\Controllers\RhController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -256,6 +265,8 @@ $router->get('/api/heures-supplementaires', [HeuresSupController::class, 'index'
 
 // --- API : Alertes ---
 $router->get('/api/alertes', [AlerteController::class, 'index']);
+$router->post('/api/alertes/tout-lire', [AlerteController::class, 'toutLire']);
+$router->post('/api/alertes/{id}/lu', [AlerteController::class, 'marquerLu']);
 
 // --- API : Motifs d'absence ---
 $router->get('/api/motifs', [MotifController::class, 'index']);
@@ -269,6 +280,37 @@ $router->get('/api/dashboard/presence', [DashboardController::class, 'presence']
 // --- API : Productivité ---
 $router->get('/api/productivite/classement', [ProductiviteController::class, 'classement']);
 $router->get('/api/productivite/{id}', [ProductiviteController::class, 'show']);
+
+// =====================================================================
+// Intégration dashboard React — ressources ADDITIVES (docs/INTEGRATION-FRONT.md §3)
+// N'altèrent aucun endpoint existant (kiosque/sync intacts).
+// =====================================================================
+// Dépenses société (Finance)
+$router->get('/api/depenses', [DepenseController::class, 'index']);
+$router->post('/api/depenses', [DepenseController::class, 'store']);
+$router->delete('/api/depenses/{id}', [DepenseController::class, 'destroy']);
+// Journal des paiements de paie + synthèse Finance (PaieController lecture inchangé)
+$router->post('/api/paie/payer-lot', [PaiementController::class, 'payerLot']);
+$router->post('/api/paie/{employe_id}/payer', [PaiementController::class, 'payer']);
+$router->get('/api/mouvements', [PaiementController::class, 'mouvements']);
+$router->get('/api/finance/synthese', [PaiementController::class, 'synthese']);
+// Paramètres globaux entreprise
+$router->get('/api/parametres', [ParametreController::class, 'index']);
+$router->put('/api/parametres', [ParametreController::class, 'update']);
+// Comptes & rôles du dashboard (lecture depuis employe)
+$router->get('/api/utilisateurs', [UtilisateurController::class, 'index']);
+$router->get('/api/roles', [UtilisateurController::class, 'roles']);
+// Appareils biométriques (lecture de appareil_biometrique)
+$router->get('/api/appareils', [AppareilController::class, 'index']);
+$router->get('/api/appareils/{id}', [AppareilController::class, 'show']);
+// Rapports (agrégats)
+$router->get('/api/rapports/synthese', [RapportController::class, 'synthese']);
+// Présence temps réel + calendrier de présence d'un agent (vue admin)
+$router->get('/api/presence/temps-reel', [PresenceController::class, 'tempsReel']);
+$router->get('/api/employes/{id}/presence', [PresenceController::class, 'calendrier']);
+// Documents RH & historique RH
+$router->get('/api/employes/{id}/documents', [RhController::class, 'documents']);
+$router->get('/api/employes/{id}/historique-rh', [RhController::class, 'historique']);
 
 $k40Config = require dirname(__DIR__) . '/config/k40.php';
 
