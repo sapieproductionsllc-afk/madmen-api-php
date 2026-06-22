@@ -22,7 +22,7 @@ final class RapportController
      *   tempsEcranMoyen: int (minutes : travail - inactivité, plancher 0)
      * }
      */
-    public function synthese(): void
+    private function donnees(): array
     {
         $db = Database::connection();
 
@@ -124,7 +124,7 @@ final class RapportController
         $ecranStmt->execute($prodParams);
         $tempsEcranMoyen = (int) ($ecranStmt->fetchColumn() ?: 0);
 
-        Response::json([
+        return [
             'presence' => $presence,
             'donut' => [
                 'presents' => $presents,
@@ -134,6 +134,41 @@ final class RapportController
             ],
             'tendance' => $tendance,
             'tempsEcranMoyen' => $tempsEcranMoyen,
-        ]);
+        ];
+    }
+
+    /** GET /api/rapports/synthese — agrégats JSON. */
+    public function synthese(): void
+    {
+        Response::json($this->donnees());
+    }
+
+    /**
+     * GET /api/rapports/export — page HTML prête à imprimer (Enregistrer en PDF côté
+     * navigateur). Sans dépendance serveur ; ne touche pas le front. Une vraie sortie
+     * PDF « brandée » nécessiterait dompdf (cf. docs/INTEGRATION-FRONT.md §4.9).
+     */
+    public function export(): void
+    {
+        $d = $this->donnees();
+        $g = $d['donut'];
+        $date = date('d/m/Y H:i');
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">'
+            . '<title>MadMen - Rapport de synthese</title>'
+            . '<style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a}'
+            . 'h1{font-size:20px;margin:0 0 4px}.sub{color:#666;font-size:12px;margin:0 0 18px}'
+            . 'table{border-collapse:collapse;width:100%;margin:10px 0}td,th{border:1px solid #ccc;padding:8px 10px;text-align:left;font-size:13px}'
+            . 'th{background:#f2f2f2}.kpi{font-size:28px;font-weight:700;margin:0}.muted{color:#777;font-size:11px;margin:0 0 14px}'
+            . '@media print{button{display:none}}</style></head><body>'
+            . '<h1>MadMen &mdash; Rapport de synthese</h1>'
+            . '<p class="sub">Genere le ' . $date . '</p>'
+            . '<p class="kpi">' . (int) $d['presence'] . ' %</p><p class="muted">Taux de presence (hors conges)</p>'
+            . '<table><tr><th>Presents</th><th>Retards</th><th>Absents</th><th>Conges</th><th>Temps ecran moyen</th></tr>'
+            . '<tr><td>' . (int) $g['presents'] . '</td><td>' . (int) $g['retards'] . '</td><td>' . (int) $g['absents'] . '</td><td>' . (int) $g['conges'] . '</td><td>' . (int) $d['tempsEcranMoyen'] . ' min</td></tr></table>'
+            . '<button onclick="window.print()">Imprimer / Enregistrer en PDF</button>'
+            . '<script>window.onload=function(){setTimeout(function(){window.print();},300);};</script>'
+            . '</body></html>';
+        exit;
     }
 }

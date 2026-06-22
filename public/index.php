@@ -65,6 +65,7 @@ use MadMen\Controllers\AppareilController;
 use MadMen\Controllers\RapportController;
 use MadMen\Controllers\PresenceController;
 use MadMen\Controllers\RhController;
+use MadMen\Controllers\AjustementController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
 // défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
@@ -248,6 +249,7 @@ $router->post('/api/sync', [SyncController::class, 'sync']);
 // --- API : Messagerie (communication interne : fils directs + groupes) ---
 $router->get('/api/conversations', [MessagerieController::class, 'conversations']);
 $router->post('/api/conversations', [MessagerieController::class, 'creer']);
+$router->post('/api/conversations/broadcast', [MessagerieController::class, 'broadcast']);
 $router->get('/api/conversations/{id}', [MessagerieController::class, 'show']);
 $router->post('/api/conversations/{id}/membres', [MessagerieController::class, 'ajouterMembres']);
 $router->delete('/api/conversations/{id}/membres/{employeId}', [MessagerieController::class, 'retirerMembre']);
@@ -303,8 +305,13 @@ $router->get('/api/roles', [UtilisateurController::class, 'roles']);
 // Appareils biométriques (lecture de appareil_biometrique)
 $router->get('/api/appareils', [AppareilController::class, 'index']);
 $router->get('/api/appareils/{id}', [AppareilController::class, 'show']);
-// Rapports (agrégats)
+// Rapports (agrégats + export imprimable -> PDF navigateur)
 $router->get('/api/rapports/synthese', [RapportController::class, 'synthese']);
+$router->get('/api/rapports/export', [RapportController::class, 'export']);
+// Composition du salaire : primes / retenues manuelles par mois (#4)
+$router->get('/api/employes/{id}/ajustements', [AjustementController::class, 'index']);
+$router->post('/api/employes/{id}/ajustements', [AjustementController::class, 'store']);
+$router->delete('/api/ajustements/{id}', [AjustementController::class, 'destroy']);
 // Présence temps réel + calendrier de présence d'un agent (vue admin)
 $router->get('/api/presence/temps-reel', [PresenceController::class, 'tempsReel']);
 $router->get('/api/employes/{id}/presence', [PresenceController::class, 'calendrier']);

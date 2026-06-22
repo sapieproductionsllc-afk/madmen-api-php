@@ -178,8 +178,32 @@ final class PaieController
         $deductionRetard = $calculable ? round($totalRetardSec * $valeurSeconde) : null;
         // Absence déduite selon la durée RÉELLE de chaque jour manqué (sa fenêtre).
         $deductionAbsence = $calculable ? round($absenceSec * $valeurSeconde) : null;
+
+        // Composition du salaire (#4, additif) : primes/retenues MANUELLES du mois
+        // (paie_ajustement) + avances = mensualités des prêts EN COURS (pret). Le kiosque
+        // ne touche pas à la paie -> sûr. Quand il n'y a rien, ces montants valent 0 et le
+        // net reste identique à l'ancien calcul.
+        $stmtAj = $db->prepare(
+            "SELECT COALESCE(SUM(CASE WHEN type = 'prime'   THEN montant END), 0) AS primes,
+                    COALESCE(SUM(CASE WHEN type = 'retenue' THEN montant END), 0) AS retenues
+             FROM paie_ajustement WHERE employe_id = ? AND periode = ?"
+        );
+        $stmtAj->execute([$id, $mois]);
+        $aj = $stmtAj->fetch() ?: [];
+        $primes = (float) ($aj['primes'] ?? 0);
+        $retenues = (float) ($aj['retenues'] ?? 0);
+
+        $stmtAv = $db->prepare("SELECT COALESCE(SUM(mensualite), 0) FROM pret WHERE employe_id = ? AND statut = 'en_cours'");
+        $stmtAv->execute([$id]);
+        $avances = (float) ($stmtAv->fetchColumn() ?: 0);
+
+        // % de travail (#10) = temps réellement travaillé / temps théorique du mois.
+        $pourcentageTravail = $tempsTheoriqueMensuelSec > 0
+            ? round($totalTravailleSec / $tempsTheoriqueMensuelSec * 100, 1)
+            : null;
+
         $salaireNet = $calculable
-            ? round($salaire - $deductionRetard - $deductionAbsence)
+            ? round($salaire - $deductionRetard - $deductionAbsence + $primes - $retenues - $avances)
             : null;
 
         return [
@@ -210,6 +234,10 @@ final class PaieController
             'salaire_brut'                => round($salaire),
             'deduction_retard'            => $deductionRetard,
             'deduction_absence'           => $deductionAbsence,
+            'primes'                      => round($primes),
+            'retenues'                    => round($retenues),
+            'avances'                     => round($avances),
+            'pourcentage_travail'         => $pourcentageTravail,
             'salaire_net'                 => $salaireNet,
             'detail'                      => array_values($detail),
         ];

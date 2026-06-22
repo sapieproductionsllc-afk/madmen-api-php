@@ -84,6 +84,39 @@ final class MessagerieController
         Response::json($this->resume($db, $this->conv($db, $convId), $me), 201);
     }
 
+    /** POST /api/conversations/broadcast — diffusion « Tout le personnel » (canal annonce, #8). */
+    public function broadcast(): void
+    {
+        $me = Actor::requireEmployeId();
+        $db = Database::connection();
+        $body = Request::body();
+
+        $contenu = trim((string) ($body['contenu'] ?? ''));
+        if ($contenu === '') {
+            Response::error("Une annonce exige 'contenu'", 422);
+        }
+        $nom = trim((string) ($body['nom'] ?? '')) ?: 'Tout le personnel';
+
+        $db->prepare("INSERT INTO conversation (type, nom, cree_par) VALUES ('annonce', ?, ?)")
+           ->execute([mb_substr($nom, 0, 120), $me]);
+        $convId = (int) $db->lastInsertId();
+
+        // L'émetteur est admin ; tous les employés non suspendus reçoivent l'annonce.
+        $this->ajouter($db, $convId, $me, 'admin');
+        $stmt = $db->query("SELECT id FROM employe WHERE statut <> 'suspendu'");
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $eid) {
+            if ((int) $eid !== $me) {
+                $this->ajouter($db, $convId, (int) $eid, 'membre');
+            }
+        }
+
+        $db->prepare('INSERT INTO message (conversation_id, expediteur_id, type, contenu) VALUES (?, ?, ?, ?)')
+           ->execute([$convId, $me, 'texte', $contenu]);
+        $db->prepare('UPDATE conversation SET updated_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$convId]);
+
+        Response::json($this->resume($db, $this->conv($db, $convId), $me), 201);
+    }
+
     /** GET /api/conversations/{id} — détail + membres. */
     public function show(array $params): void
     {
