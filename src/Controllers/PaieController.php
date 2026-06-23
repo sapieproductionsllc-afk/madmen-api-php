@@ -8,6 +8,7 @@ use MadMen\Core\Paie;
 use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
+use MadMen\Core\Salaire;
 use PDO;
 
 /**
@@ -57,7 +58,8 @@ final class PaieController
     public static function calculer(PDO $db, array $employe, string $mois): array
     {
         $id = (int) $employe['id'];
-        $salaire = (float) $employe['salaire'];
+        // Salaire EFFECTIF au mois (historique salaire_fixe) ; repli sur employe.salaire.
+        $salaire = Salaire::effectif($db, $id, $mois) ?? (float) $employe['salaire'];
 
         $dateDebut = $mois . '-01';
         $dateFin = date('Y-m-t', strtotime($dateDebut));

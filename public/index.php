@@ -48,6 +48,7 @@ use MadMen\Controllers\AuthController;
 use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
 use MadMen\Controllers\PaieController;
+use MadMen\Controllers\SalaireController;
 use MadMen\Controllers\MessagerieController;
 use MadMen\Controllers\FichierController;
 use MadMen\Controllers\JourFerieController;
@@ -66,6 +67,7 @@ use MadMen\Controllers\AppareilController;
 use MadMen\Controllers\RapportController;
 use MadMen\Controllers\PresenceController;
 use MadMen\Controllers\RhController;
+use MadMen\Controllers\DocumentController;
 use MadMen\Controllers\AjustementController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
@@ -178,6 +180,7 @@ $router->post('/api/employes', [EmployeController::class, 'store']);
 $router->post('/api/employes/{id}/regenerer-pin', [EmployeController::class, 'regenererPin']);
 $router->get('/api/employes/{id}', [EmployeController::class, 'show']);
 $router->put('/api/employes/{id}', [EmployeController::class, 'update']);
+$router->patch('/api/employes/{id}/identifiants', [EmployeController::class, 'updateIdentifiants']);
 $router->delete('/api/employes/{id}', [EmployeController::class, 'destroy']);
 
 // --- API : Horaire de travail par employé (retard/présence/heures sup) ---
@@ -187,6 +190,12 @@ $router->put('/api/employes/{id}/horaire', [HoraireController::class, 'upsert'])
 // --- API : Paie mensuelle (bulletin par employé + liste de paie) ---
 $router->get('/api/employes/{id}/paie', [PaieController::class, 'bulletin']);
 $router->get('/api/paie', [PaieController::class, 'liste']);
+
+// --- API : Salaire fixe (historique daté par employé) ---
+$router->get('/api/employes/{id}/salaire', [SalaireController::class, 'index']);
+$router->post('/api/employes/{id}/salaire', [SalaireController::class, 'store']);
+$router->put('/api/salaire/{id}', [SalaireController::class, 'update']);
+$router->delete('/api/salaire/{id}', [SalaireController::class, 'destroy']);
 
 // --- API : Jours fériés (journées payées, non comptées comme absence) ---
 $router->get('/api/jours-feries', [JourFerieController::class, 'index']);
@@ -339,6 +348,12 @@ $router->get('/api/presence/temps-reel', [PresenceController::class, 'tempsReel'
 $router->get('/api/employes/{id}/presence', [PresenceController::class, 'calendrier']);
 // Documents RH & historique RH
 $router->get('/api/employes/{id}/documents', [RhController::class, 'documents']);
+// CRUD documents RH (PDF uniquement, stockés hors /public)
+$router->post('/api/employes/{id}/documents', [DocumentController::class, 'store']);
+$router->post('/api/employes/{id}/documents/{docId}/remplacer', [DocumentController::class, 'remplacer']);
+$router->get('/api/employes/{id}/documents/{docId}/fichier', [DocumentController::class, 'telecharger']);
+$router->patch('/api/employes/{id}/documents/{docId}', [DocumentController::class, 'update']);
+$router->delete('/api/employes/{id}/documents/{docId}', [DocumentController::class, 'destroy']);
 $router->get('/api/employes/{id}/historique-rh', [RhController::class, 'historique']);
 
 $k40Config = require dirname(__DIR__) . '/config/k40.php';

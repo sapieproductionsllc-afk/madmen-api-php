@@ -48,6 +48,8 @@ tags:
     description: Communication interne (conversations directes/groupes, pièces jointes)
   - name: Fichiers
     description: Pièces jointes de la messagerie (image, audio, PDF, document)
+  - name: Documents
+    description: Documents RH d'un employé (PDF — contrats, attestations, fiches de paie)
   - name: Surveillance kiosque
     description: Journal d'activité du kiosque (sans impact sur la paie)
 
@@ -170,6 +172,43 @@ paths:
                   matricule: { type: string }
                   code_pin_genere: { type: string, example: "3876" }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/employes/{id}/identifiants:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+    patch:
+      tags: [Employés]
+      summary: Mettre à jour le matricule et/ou le code PIN d'un employé
+      description: >
+        Endpoint dédié à la gestion des identifiants. Seuls les champs fournis
+        sont mis à jour. Le PIN est haché côté serveur. Réservé au super_admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                matricule:
+                  type: string
+                  example: EMP-0001
+                  description: Nouveau matricule (unique)
+                code_pin:
+                  type: string
+                  example: "1234"
+                  description: Nouveau code PIN (exactement 4 chiffres)
+      responses:
+        '200':
+          description: Identifiants mis à jour
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employe' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Données invalides (matricule vide, PIN non conforme, ou matricule déjà pris)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/config/biometrie:
     get:
@@ -979,6 +1018,83 @@ paths:
         '200': { description: Bulletin de paie }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/employes/{id}/salaire:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+    get:
+      tags: [Paie]
+      summary: Salaire fixe d'un employé (montant actuel + historique daté)
+      responses:
+        '200':
+          description: Salaire actuel + historique (récent → ancien)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employe_id: { type: integer }
+                  actuel: { type: number, nullable: true, description: "Montant effectif aujourd'hui" }
+                  historique:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        employe_id: { type: integer }
+                        montant: { type: number, example: 250000 }
+                        devise: { type: string, example: FCFA }
+                        date_application: { type: string, format: date }
+                        commentaire: { type: string, nullable: true }
+                        created_at: { type: string }
+    post:
+      tags: [Paie]
+      summary: Ajouter un salaire fixe daté
+      description: "Le montant s'applique à partir de `date_application` et alimente le calcul de paie. Resynchronise `employe.salaire` (cache)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [montant, date_application]
+              properties:
+                montant: { type: number, example: 250000 }
+                devise: { type: string, example: FCFA, default: FCFA }
+                date_application: { type: string, format: date, example: "2026-06-01" }
+                commentaire: { type: string, nullable: true, example: "Augmentation annuelle" }
+      responses:
+        '201': { description: Salaire fixe créé }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/salaire/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer }, description: "ID de l'entrée d'historique" }
+    put:
+      tags: [Paie]
+      summary: Modifier une entrée de salaire fixe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                montant: { type: number }
+                devise: { type: string }
+                date_application: { type: string, format: date }
+                commentaire: { type: string, nullable: true }
+      responses:
+        '200': { description: Entrée mise à jour }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Paie]
+      summary: Supprimer une entrée de salaire fixe
+      responses:
+        '204': { description: Supprimé }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/jours-feries:
     get:
       tags: [Jours fériés]
@@ -1258,10 +1374,116 @@ paths:
       responses: { '200': { description: États par jour }, '404': { $ref: '#/components/responses/NotFound' } }
   /api/employes/{id}/documents:
     get:
-      tags: [Employés]
-      summary: Documents RH d'un employé
+      tags: [Documents]
+      summary: Liste des documents RH d'un employé
       parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
-      responses: { '200': { description: Documents }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DocumentRh' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Documents]
+      summary: Téléverser un document RH (PDF UNIQUEMENT)
+      description: >
+        Multipart. `ajoute_par` = utilisateur courant (JWT). Tout fichier non-PDF
+        (type réel détecté côté serveur) est rejeté en 422.
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [fichier, titre]
+              properties:
+                fichier: { type: string, format: binary, description: Fichier PDF }
+                titre: { type: string, example: Contrat CDI }
+                type: { type: string, nullable: true, example: contrat }
+                description: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Document créé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentRh' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/employes/{id}/documents/{docId}:
+    patch:
+      tags: [Documents]
+      summary: Renommer / mettre à jour les métadonnées d'un document
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: docId, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                titre: { type: string }
+                type: { type: string, nullable: true }
+                description: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Document mis à jour
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentRh' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Documents]
+      summary: Supprimer un document RH
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: docId, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Supprimé }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/employes/{id}/documents/{docId}/remplacer:
+    post:
+      tags: [Documents]
+      summary: Remplacer le fichier d'un document (PDF UNIQUEMENT)
+      description: Conserve les métadonnées ; remplace le binaire (non-PDF rejeté en 422).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: docId, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [fichier]
+              properties:
+                fichier: { type: string, format: binary, description: Nouveau fichier PDF }
+      responses:
+        '200':
+          description: Document mis à jour
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentRh' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/employes/{id}/documents/{docId}/fichier:
+    get:
+      tags: [Documents]
+      summary: Télécharger le binaire PDF d'un document
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: docId, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Binaire PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { description: Fichier absent du stockage }
   /api/employes/{id}/historique-rh:
     get:
       tags: [Employés]
@@ -1355,6 +1577,18 @@ components:
         intitule: { type: string, example: Comptable }
         departement_id: { type: integer, nullable: true }
 
+    DocumentRh:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        titre: { type: string, example: Contrat CDI }
+        type: { type: string, nullable: true, example: contrat }
+        description: { type: string, nullable: true, example: Contrat signé 2024 }
+        created_at: { type: string, format: date-time }
+        taille_octets: { type: integer, nullable: true, example: 24576 }
+        ajoute_par_nom: { type: string, nullable: true, example: Super Admin }
+        url: { type: string, nullable: true, description: URL de téléchargement du binaire, example: /api/employes/13/documents/1/fichier }
+
     Employe:
       type: object
       properties:
@@ -1370,8 +1604,16 @@ components:
         adresse: { type: string, nullable: true }
         contact_urgence_nom: { type: string, nullable: true }
         contact_urgence_tel: { type: string, nullable: true }
+        contact_urgence_lien: { type: string, nullable: true, example: Conjoint }
         salaire: { type: number, format: float, nullable: true, example: 3500.00 }
         statut: { type: string, enum: [actif, suspendu, conge], example: actif }
+        sexe: { type: string, nullable: true, example: Homme }
+        date_naissance: { type: string, format: date, nullable: true, example: "1990-05-12" }
+        nationalite: { type: string, nullable: true, example: Congolaise }
+        etat_civil: { type: string, nullable: true, example: Marié(e) }
+        date_embauche: { type: string, format: date, nullable: true, example: "2024-01-15" }
+        type_contrat: { type: string, nullable: true, example: CDI }
+        notes_admin: { type: string, nullable: true, description: Notes administratives internes (RH) }
         created_at: { type: string, format: date-time }
 
     EmployeInput:
@@ -1389,9 +1631,17 @@ components:
         adresse: { type: string, nullable: true }
         contact_urgence_nom: { type: string, nullable: true }
         contact_urgence_tel: { type: string, nullable: true }
+        contact_urgence_lien: { type: string, nullable: true, example: Conjoint }
         salaire: { type: number, format: float, nullable: true }
-        code_pin: { type: string, description: "PIN en clair — sera haché côté serveur", example: "1234" }
+        code_pin: { type: string, description: "PIN en clair — sera haché côté serveur (ignoré par PUT ; passe par PATCH /identifiants)", example: "1234" }
         statut: { type: string, enum: [actif, suspendu, conge], default: actif }
+        sexe: { type: string, nullable: true, example: Homme }
+        date_naissance: { type: string, format: date, nullable: true, example: "1990-05-12" }
+        nationalite: { type: string, nullable: true, example: Congolaise }
+        etat_civil: { type: string, nullable: true, example: Marié(e) }
+        date_embauche: { type: string, format: date, nullable: true, example: "2024-01-15" }
+        type_contrat: { type: string, nullable: true, example: CDI }
+        notes_admin: { type: string, nullable: true, description: Notes administratives internes (RH) }
 
     Pointage:
       type: object
