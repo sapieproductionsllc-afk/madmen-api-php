@@ -133,10 +133,14 @@ final class K40Pointage
         $stmt->execute([$employeId, $date, $appareilId]);
         $pid = $stmt->fetchColumn();
 
+        // Le DERNIER passage du jour décide l'état courant : 'sortie' => la personne
+        // est PARTIE ; 'entree' => présente (ou en retard si l'arrivée était tardive).
+        $estParti = ($type === 'sortie');
+
         if (!$pid) {
             // Retard vs la fenêtre du jour (au-delà de la tolérance). Repos -> 0.
             $retard = $fenetre ? Presence::retardDansFenetre($resume['entree'], $fenetre) : 0;
-            $statut = $retard > 0 ? 'retard' : 'present';
+            $statut = $estParti ? 'parti' : ($retard > 0 ? 'retard' : 'present');
             $db->prepare(
                 'INSERT INTO pointage
                     (employe_id, appareil_id, date, heure_entree, heure_sortie, methode,
@@ -147,10 +151,19 @@ final class K40Pointage
                 $retard, $resume['present'], $resume['pause'], $resume['nb_pauses'], $statut,
             ]);
         } else {
+            // Met à jour la sortie ET le statut : 'parti' si dernier passage = sortie,
+            // sinon retour à 'present' (en conservant 'retard' si l'arrivée était tardive).
             $db->prepare(
-                'UPDATE pointage SET heure_sortie = ?, temps_present_minutes = ?,
-                    temps_pause_minutes = ?, nb_pauses = ? WHERE id = ?'
-            )->execute([$resume['sortie'], $resume['present'], $resume['pause'], $resume['nb_pauses'], (int) $pid]);
+                "UPDATE pointage SET heure_sortie = ?, temps_present_minutes = ?,
+                    temps_pause_minutes = ?, nb_pauses = ?,
+                    statut = CASE WHEN ? = 1 THEN 'parti'
+                                  WHEN statut = 'retard' THEN 'retard'
+                                  ELSE 'present' END
+                 WHERE id = ?"
+            )->execute([
+                $resume['sortie'], $resume['present'], $resume['pause'], $resume['nb_pauses'],
+                $estParti ? 1 : 0, (int) $pid,
+            ]);
         }
 
         // 5) Une SORTIE (pause OU départ) met à jour les heures sup. Le K40 NE

@@ -13,9 +13,10 @@ final class DashboardController
     {
         $db = Database::connection();
 
+        // Présents = ont pointé une ENTRÉE aujourd'hui ET ne sont pas repartis (statut <> 'parti').
         $presents = (int) $db->query(
             "SELECT COUNT(DISTINCT employe_id) FROM pointage
-             WHERE date = CURDATE() AND heure_entree IS NOT NULL"
+             WHERE date = CURDATE() AND heure_entree IS NOT NULL AND statut <> 'parti'"
         )->fetchColumn();
 
         $enConge = (int) $db->query(
