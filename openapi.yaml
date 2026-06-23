@@ -982,6 +982,30 @@ paths:
         - { in: path, name: id, required: true, schema: { type: integer } }
       responses:
         '201': { description: Pointage créé }
+  /api/employes/{id}/pointage-jour:
+    put:
+      tags: [Présence]
+      summary: Fixe (override admin) l'arrivée/le départ d'un jour depuis le calendrier
+      description: >
+        Remplace les passages du jour par les heures fournies puis recalcule le résumé
+        (heure_entree/heure_sortie, retard, statut présent/parti). Les deux champs vides = jour effacé.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, example: "2026-06-23" }
+                heure_entree: { type: string, nullable: true, example: "08:00" }
+                heure_sortie: { type: string, nullable: true, example: "17:00" }
+      responses:
+        '200': { description: Jour mis à jour (résumé recalculé) }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: date ou heures invalides }
   /api/pointages/{id}/passages:
     get:
       tags: [Présence]
@@ -1011,11 +1035,15 @@ paths:
     get:
       tags: [Paie]
       summary: Bulletin de paie détaillé d'un employé
+      description: >
+        Inclut un bloc `recap_heures` (heures normales/sup, retard, jours par statut :
+        présent/retard/absent/conge/ferie) + `jours_conge`. Les jours de congé approuvés
+        (demande_conge, demande self-service, ou pointage.statut='conge') sont payés, NON déduits.
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
         - { in: query, name: mois, schema: { type: string, example: "2026-06" } }
       responses:
-        '200': { description: Bulletin de paie }
+        '200': { description: Bulletin de paie (avec recap_heures) }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/employes/{id}/salaire:
@@ -1607,6 +1635,7 @@ components:
         contact_urgence_lien: { type: string, nullable: true, example: Conjoint }
         salaire: { type: number, format: float, nullable: true, example: 3500.00 }
         statut: { type: string, enum: [actif, suspendu, conge], example: actif }
+        role: { type: string, enum: [super_admin, directeur, superviseur, employe], example: employe }
         sexe: { type: string, nullable: true, example: Homme }
         date_naissance: { type: string, format: date, nullable: true, example: "1990-05-12" }
         nationalite: { type: string, nullable: true, example: Congolaise }
@@ -1618,7 +1647,7 @@ components:
 
     EmployeInput:
       type: object
-      required: [matricule, nom, prenom, code_pin]
+      required: [nom, prenom]
       properties:
         matricule: { type: string, example: EMP-0001 }
         nom: { type: string, example: Dupont }
@@ -1633,8 +1662,9 @@ components:
         contact_urgence_tel: { type: string, nullable: true }
         contact_urgence_lien: { type: string, nullable: true, example: Conjoint }
         salaire: { type: number, format: float, nullable: true }
-        code_pin: { type: string, description: "PIN en clair — sera haché côté serveur (ignoré par PUT ; passe par PATCH /identifiants)", example: "1234" }
+        code_pin: { type: string, description: "Ignoré : le PIN est TOUJOURS généré automatiquement côté serveur (récupérable via code_pin_genere dans la réponse).", example: "1234" }
         statut: { type: string, enum: [actif, suspendu, conge], default: actif }
+        role: { type: string, enum: [super_admin, directeur, superviseur, employe], default: employe }
         sexe: { type: string, nullable: true, example: Homme }
         date_naissance: { type: string, format: date, nullable: true, example: "1990-05-12" }
         nationalite: { type: string, nullable: true, example: Congolaise }
