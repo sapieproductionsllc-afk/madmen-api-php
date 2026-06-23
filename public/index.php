@@ -217,6 +217,8 @@ $router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin'])
 // --- API : Authentification dashboard (login par PIN -> JWT + rôle) ---
 $router->post('/api/auth/login', [AuthController::class, 'login']);
 $router->post('/api/auth/login-pin', [AuthController::class, 'loginPin']);
+$router->post('/api/auth/refresh', [AuthController::class, 'refresh']);
+$router->post('/api/auth/logout', [AuthController::class, 'logout']);
 $router->get('/api/auth/me', [AuthController::class, 'me']);
 
 // --- API : Espace self-service de l'employé connecté (/api/me/*, scopé au jeton) ---

@@ -21,6 +21,8 @@ final class AuthController
     private const MAX_ECHEC_MATRICULE = 5;
     /** Échecs max depuis UNE IP sur la fenêtre (anti-balayage de plusieurs comptes). */
     private const MAX_ECHEC_IP = 30;
+    /** Durée de vie d'un refresh token : 60 jours. */
+    private const REFRESH_TTL = 5184000;
 
     /** POST /api/auth/login — { matricule, code_pin } → { token, employe } */
     public function login(): void
@@ -63,9 +65,11 @@ final class AuthController
             'matricule' => $e['matricule'],
             'role'      => $e['role'],
         ]);
+        $refresh = $this->emettreRefresh((int) $e['id']);
 
         Response::json([
-            'token'   => $token,
+            'token'         => $token,
+            'refresh_token' => $refresh,
             'employe' => [
                 'id'        => (int) $e['id'],
                 'matricule' => $e['matricule'],
@@ -133,9 +137,11 @@ final class AuthController
             'matricule' => $e['matricule'],
             'role'      => $e['role'],
         ]);
+        $refresh = $this->emettreRefresh((int) $e['id']);
 
         Response::json([
-            'token'   => $token,
+            'token'         => $token,
+            'refresh_token' => $refresh,
             'employe' => [
                 'id'        => (int) $e['id'],
                 'matricule' => $e['matricule'],
@@ -159,6 +165,84 @@ final class AuthController
             'matricule' => $payload['matricule'] ?? null,
             'role'      => $payload['role'] ?? null,
         ]);
+    }
+
+    /**
+     * POST /api/auth/refresh — { refresh_token } → { token, refresh_token }.
+     * Échange un refresh token valide contre un NOUVEAU JWT (8 h) + un nouveau
+     * refresh token (rotation : l'ancien est révoqué). Permet de rester connecté
+     * longtemps sans ressaisir le PIN.
+     */
+    public function refresh(): void
+    {
+        $token = (string) (Request::body()['refresh_token'] ?? '');
+        if ($token === '') {
+            Response::error("Le champ 'refresh_token' est obligatoire", 422);
+        }
+
+        $db = Database::connection();
+        $stmt = $db->prepare(
+            "SELECT rt.id, rt.employe_id, rt.expires_at, rt.revoked,
+                    e.matricule, e.role, e.statut
+             FROM refresh_token rt
+             JOIN employe e ON e.id = rt.employe_id
+             WHERE rt.token_hash = ?"
+        );
+        $stmt->execute([hash('sha256', $token)]);
+        $rt = $stmt->fetch();
+
+        if (
+            !$rt
+            || (int) $rt['revoked'] === 1
+            || strtotime((string) $rt['expires_at']) < time()
+            || $rt['statut'] === 'suspendu'
+        ) {
+            Response::error('Refresh token invalide ou expiré', 401);
+        }
+
+        // Rotation : on révoque l'ancien, on en émet un nouveau.
+        $db->prepare('UPDATE refresh_token SET revoked = 1, last_used_at = ? WHERE id = ?')
+           ->execute([date('Y-m-d H:i:s'), (int) $rt['id']]);
+        $nouveau = $this->emettreRefresh((int) $rt['employe_id']);
+
+        Response::json([
+            'token'         => Jwt::encode([
+                'sub'       => (int) $rt['employe_id'],
+                'matricule' => $rt['matricule'],
+                'role'      => $rt['role'],
+            ]),
+            'refresh_token' => $nouveau,
+        ]);
+    }
+
+    /** POST /api/auth/logout — { refresh_token } → 204. Révoque le refresh token. */
+    public function logout(): void
+    {
+        $token = (string) (Request::body()['refresh_token'] ?? '');
+        if ($token !== '') {
+            Database::connection()
+                ->prepare('UPDATE refresh_token SET revoked = 1 WHERE token_hash = ?')
+                ->execute([hash('sha256', $token)]);
+        }
+        Response::noContent();
+    }
+
+    /**
+     * Émet un refresh token (opaque, aléatoire) pour un employé : stocke son HASH
+     * + son expiration, renvoie le jeton EN CLAIR (à donner au client, une seule fois).
+     */
+    private function emettreRefresh(int $employeId): string
+    {
+        $token = bin2hex(random_bytes(32)); // 64 caractères hexadécimaux
+        Database::connection()->prepare(
+            'INSERT INTO refresh_token (employe_id, token_hash, expires_at) VALUES (?, ?, ?)'
+        )->execute([
+            $employeId,
+            hash('sha256', $token),
+            date('Y-m-d H:i:s', time() + self::REFRESH_TTL),
+        ]);
+
+        return $token;
     }
 
     /**
