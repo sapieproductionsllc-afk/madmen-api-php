@@ -93,6 +93,7 @@ final class PaieController
         $detail = [];
         $present = [];
         $totalTravailleSec = 0;
+        $totalNormalSec = 0;
         $totalRetardSec = 0;
         $nbRetards = 0;
 
@@ -126,6 +127,7 @@ final class PaieController
             }
 
             $totalTravailleSec += $worked;
+            $totalNormalSec += $normal;
             $totalRetardSec += $late;
 
             $detail[$date] = [
@@ -139,10 +141,17 @@ final class PaieController
             ];
         }
 
+        // Congés APPROUVÉS du mois : un jour planifié couvert par un congé approuvé
+        // (ou un pointage.statut='conge') est PAYÉ et NON déduit, comme un férié. On
+        // récupère l'ensemble des dates couvertes une seule fois (cf. congesMap).
+        $conges = self::congesMap($db, $id, $dateDebut, $dateFin);
+
         // Jours travaillés sans pointage (jusqu'à aujourd'hui) : férié = PAYÉ (pas
-        // d'absence, pas de déduction) ; sinon ABSENT (déduit).
+        // d'absence, pas de déduction) ; congé approuvé = PAYÉ aussi ; sinon ABSENT
+        // (déduit).
         $joursAbsent = 0;
         $joursFeries = 0;
+        $joursConge = 0;
         $absenceSec = 0;
         for ($t = strtotime($dateDebut), $tb = strtotime($borneAbsence); $t <= $tb; $t = strtotime('+1 day', $t)) {
             $date = date('Y-m-d', $t);
@@ -156,6 +165,14 @@ final class PaieController
                     'date' => $date, 'check_in' => null, 'check_out' => null,
                     'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
                     'status' => 'FERIE', 'libelle' => $feries[$date],
+                ];
+            } elseif (isset($conges[$date])) {
+                // Congé approuvé : payé, NON déduit (pas ajouté à $absenceSec).
+                $joursConge++;
+                $detail[$date] = [
+                    'date' => $date, 'check_in' => null, 'check_out' => null,
+                    'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
+                    'status' => 'CONGE', 'libelle' => $conges[$date],
                 ];
             } else {
                 $joursAbsent++;
@@ -199,6 +216,26 @@ final class PaieController
         $stmtAv->execute([$id]);
         $avances = (float) ($stmtAv->fetchColumn() ?: 0);
 
+        // Heures supplémentaires du mois (#2) : la table heures_supplementaires est
+        // alimentée par le K40 (durée en minutes au-delà de l'horaire). On la SOMME
+        // pour le récap ; elle est INFORMATIVE (non payée) car le modèle horaire ne
+        // compte volontairement pas le temps hors fenêtre comme du travail payé.
+        // try/catch défensif (comme les sources de congés) : une table absente/modifiée
+        // ne doit jamais faire échouer le bulletin entier.
+        $heuresSupSec = 0;
+        try {
+            $stmtHs = $db->prepare(
+                'SELECT COALESCE(SUM(duree_minutes), 0) FROM heures_supplementaires
+                 WHERE employe_id = ? AND date BETWEEN ? AND ?'
+            );
+            $stmtHs->execute([$id, $dateDebut, $dateFin]);
+            $heuresSupSec = (int) $stmtHs->fetchColumn() * 60;
+        } catch (\Throwable $e) {
+            $heuresSupSec = 0;
+        }
+        // Valeur indicative des HS au taux horaire normal (NON ajoutée au net).
+        $heuresSupValeur = $calculable ? round($heuresSupSec * $valeurSeconde) : null;
+
         // % de travail (#10) = temps réellement travaillé / temps théorique du mois.
         $pourcentageTravail = $tempsTheoriqueMensuelSec > 0
             ? round($totalTravailleSec / $tempsTheoriqueMensuelSec * 100, 1)
@@ -224,6 +261,7 @@ final class PaieController
             'valeur_seconde'              => round($valeurSeconde, 4),
             'jours_presents'              => count(array_filter($detail, static fn ($d) => in_array($d['status'], ['PRESENT', 'LATE'], true))),
             'jours_feries'                => $joursFeries,
+            'jours_conge'                 => $joursConge,
             'jours_extra'                 => count(array_filter($detail, static fn ($d) => $d['status'] === 'EXTRA')),
             'jours_absents'               => $joursAbsent,
             'nb_retards'                  => $nbRetards,
@@ -231,6 +269,32 @@ final class PaieController
             'temps_total_travaille'       => Paie::formatHM($totalTravailleSec),
             'temps_total_retard_sec'      => $totalRetardSec,
             'temps_total_retard'          => Paie::formatHM($totalRetardSec),
+            // Récap d'heures exploitable par le front (#2/#3) : heures normales / HS /
+            // jours par statut. Les HS sont INFORMATIVES (heures_sup_payees=false).
+            'recap_heures'                => [
+                'heures_normales_sec'  => $totalNormalSec,
+                'heures_normales'      => Paie::formatHM($totalNormalSec),
+                'heures_sup_sec'       => $heuresSupSec,
+                'heures_sup'           => Paie::formatHM($heuresSupSec),
+                'heures_sup_payees'    => false,
+                'heures_sup_valeur'    => $heuresSupValeur,
+                'retard_sec'           => $totalRetardSec,
+                'retard'               => Paie::formatHM($totalRetardSec),
+                'total_travaille_sec'  => $totalTravailleSec,
+                'total_travaille'      => Paie::formatHM($totalTravailleSec),
+                'theorique_sec'        => $tempsTheoriqueMensuelSec,
+                'theorique'            => Paie::formatHM($tempsTheoriqueMensuelSec),
+                // Alias attendus par le front (contrat recap_heures auto-suffisant).
+                'heures_theoriques_sec'  => $tempsTheoriqueMensuelSec,
+                'heures_travaillees_sec' => $totalTravailleSec,
+                'retenues'             => round($deductionRetard + $deductionAbsence + $retenues),
+                'jours_present'        => count(array_filter($detail, static fn ($d) => in_array($d['status'], ['PRESENT', 'LATE'], true))),
+                'jours_retard'         => $nbRetards,
+                'jours_absent'         => $joursAbsent,
+                'jours_conge'          => $joursConge,
+                'jours_ferie'          => $joursFeries,
+                'jours_extra'          => count(array_filter($detail, static fn ($d) => $d['status'] === 'EXTRA')),
+            ],
             'paie_calculable'             => $calculable,
             'avertissement'               => $avertissement,
             'salaire_brut'                => round($salaire),
@@ -249,6 +313,81 @@ final class PaieController
     private static function dureeFenetre(string $date, array $w): int
     {
         return max(0, strtotime("$date " . $w['fin']) - strtotime("$date " . $w['debut']));
+    }
+
+    /**
+     * Dates (Y-m-d => libellé) du mois couvertes par un congé APPROUVÉ pour
+     * l'employé. Trois sources, cumulées :
+     *   1. demande_conge (système de solde du collègue) : statut='approuve', chaque
+     *      jour entre date_debut et date_fin ; libellé = type_conge.libelle.
+     *   2. demande (self-service) : type='conge', statut='approuve', date_debut..date_fin.
+     *   3. pointage.statut='conge' (congé saisi directement sur un jour).
+     * Robuste si une table/colonne manque (try/catch) : un congé absent ne doit
+     * jamais faire échouer le bulletin. Les jours ainsi marqués sont PAYÉS et NON
+     * déduits (comme un férié).
+     *
+     * @return array<string,string> date => libellé
+     */
+    private static function congesMap(PDO $db, int $employeId, string $dateDebut, string $dateFin): array
+    {
+        $map = [];
+
+        $marquerIntervalle = static function (string $d1, string $d2, string $libelle) use (&$map, $dateDebut, $dateFin): void {
+            $debut = max($d1, $dateDebut);
+            $fin = min($d2, $dateFin);
+            for ($t = strtotime($debut), $tf = strtotime($fin); $t !== false && $t <= $tf; $t = strtotime('+1 day', $t)) {
+                $map[date('Y-m-d', $t)] = $libelle;
+            }
+        };
+
+        // 1) demande_conge (statut='approuve') chevauchant le mois.
+        try {
+            $stmt = $db->prepare(
+                "SELECT dc.date_debut, dc.date_fin, COALESCE(tc.libelle, 'Congé') AS libelle
+                 FROM demande_conge dc
+                 LEFT JOIN type_conge tc ON tc.id = dc.type_conge_id
+                 WHERE dc.employe_id = ? AND dc.statut = 'approuve'
+                   AND dc.date_debut <= ? AND dc.date_fin >= ?"
+            );
+            $stmt->execute([$employeId, $dateFin, $dateDebut]);
+            foreach ($stmt->fetchAll() as $r) {
+                $marquerIntervalle((string) $r['date_debut'], (string) $r['date_fin'], (string) $r['libelle']);
+            }
+        } catch (\Throwable $e) {
+            error_log('congesMap demande_conge : ' . $e->getMessage());
+        }
+
+        // 2) demande (self-service) type='conge', statut='approuve'.
+        try {
+            $stmt = $db->prepare(
+                "SELECT date_debut, date_fin FROM demande
+                 WHERE employe_id = ? AND type = 'conge' AND statut = 'approuve'
+                   AND date_debut IS NOT NULL AND date_fin IS NOT NULL
+                   AND date_debut <= ? AND date_fin >= ?"
+            );
+            $stmt->execute([$employeId, $dateFin, $dateDebut]);
+            foreach ($stmt->fetchAll() as $r) {
+                $marquerIntervalle((string) $r['date_debut'], (string) $r['date_fin'], 'Congé');
+            }
+        } catch (\Throwable $e) {
+            error_log('congesMap demande : ' . $e->getMessage());
+        }
+
+        // 3) pointage.statut='conge' (congé posé directement sur un jour).
+        try {
+            $stmt = $db->prepare(
+                "SELECT date FROM pointage
+                 WHERE employe_id = ? AND statut = 'conge' AND date BETWEEN ? AND ?"
+            );
+            $stmt->execute([$employeId, $dateDebut, $dateFin]);
+            foreach ($stmt->fetchAll() as $r) {
+                $map[(string) $r['date']] = $map[(string) $r['date']] ?? 'Congé';
+            }
+        } catch (\Throwable $e) {
+            error_log('congesMap pointage : ' . $e->getMessage());
+        }
+
+        return $map;
     }
 
     /** Valide et normalise le mois (YYYY-MM) ; défaut = mois courant. Tolère un type non-string (?mois[]=) -> défaut. */
