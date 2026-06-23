@@ -39,6 +39,7 @@ use MadMen\Controllers\ProductiviteController;
 use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
 use MadMen\Controllers\K40Controller;
+use MadMen\Controllers\GatewayController;
 use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
 use MadMen\Controllers\MotifController;
@@ -356,6 +357,9 @@ if (($k40Config['role'] ?? 'cloud') === 'gateway') {
     $router->post('/api/k40/clear-users', [K40Controller::class, 'clearUsers']);
     $router->post('/api/k40/push-fingerprints', [K40Controller::class, 'pushFingerprints']);
 }
+
+// --- Réception passerelle (cloud) : le bureau pousse employés + pointages ici. Sens unique. ---
+$router->post('/api/gateway/sync', [GatewayController::class, 'sync']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode
