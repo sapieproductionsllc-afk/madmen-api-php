@@ -46,7 +46,7 @@ final class EmployeController
     private const FILLABLE = [
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
         'superieur_id', 'telephone', 'email', 'adresse', 'contact_urgence_nom',
-        'contact_urgence_tel', 'contact_urgence_lien', 'salaire', 'statut',
+        'contact_urgence_tel', 'contact_urgence_lien', 'salaire', 'statut', 'role',
         // Champs RH additionnels (migration 052) — tous NULLABLE, éditables via PUT.
         'sexe', 'date_naissance', 'nationalite', 'etat_civil',
         'date_embauche', 'type_contrat', 'notes_admin',
