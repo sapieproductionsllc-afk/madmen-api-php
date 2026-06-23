@@ -169,6 +169,14 @@ def main():
         else:
             results = do_push(conn, users)
 
+        # Recharge le terminal : les gabarits poussés entrent dans le moteur de
+        # reconnaissance SANS redémarrage manuel du K40 (sinon ils restent "stockés
+        # mais non matchables" jusqu'au prochain reboot).
+        try:
+            conn.refresh_data()
+        except Exception:
+            pass
+
         synced = sum(1 for r in results if r.get("ok"))
         failed = sum(1 for r in results if not r.get("ok"))
         out = {"ok": failed == 0, "results": results,
