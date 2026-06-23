@@ -195,6 +195,8 @@ $router->delete('/api/jours-feries/{id}', [JourFerieController::class, 'destroy'
 // --- API : Configuration (front) ---
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);
 $router->get('/api/config/postes', [ConfigController::class, 'postes']);
+$router->get('/api/postes', [PosteController::class, 'index']);
+$router->post('/api/postes', [PosteController::class, 'store']);
 $router->get('/api/postes/{code}/roster', [PosteController::class, 'roster']);
 
 // --- API : Enrôlement biométrique ---
