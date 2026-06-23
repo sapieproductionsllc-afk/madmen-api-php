@@ -473,7 +473,9 @@ final class MessagerieController
         return [
             'id'             => $convId,
             'type'           => $c['type'],
-            'nom'            => $titre,
+            // Jamais null : une conv directe sans autre membre résoluble retomberait sinon
+            // sur $c['nom'] (NULL pour les directs) et ferait planter le front.
+            'nom'            => ($titre !== null && trim((string) $titre) !== '') ? $titre : 'Conversation',
             'autre_membre'   => $autre,
             'membres_count'  => count($membres),
             'dernier_message' => $last ? [
