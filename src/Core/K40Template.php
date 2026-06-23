@@ -63,6 +63,15 @@ final class K40Template
     }
 
     /**
+     * Lit les pointages (attendance) du K40 via pyzk — la lib PHP rats/zkteco étant
+     * instable sur getAttendance. @return array{ok:bool,attendance:array<int,array>}
+     */
+    public static function attendance(): array
+    {
+        return self::run('attendance', []);
+    }
+
+    /**
      * @param array<int,mixed> $users
      * @return array<string,mixed>
      */

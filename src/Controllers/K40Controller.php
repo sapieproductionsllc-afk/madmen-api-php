@@ -274,25 +274,17 @@ final class K40Controller
         // try/finally : quoi qu'il arrive (même si getAttendance lève), on RÉ-ACTIVE
         // le terminal et on se déconnecte. Sinon une lecture qui échoue laisserait le
         // K40 « désactivé » et plus PERSONNE ne pourrait pointer à l'entrée.
-        $zk = K40::connect();
-        try {
-            @$zk->disableDevice();
-            $logs = $zk->getAttendance();
-        } finally {
-            @$zk->enableDevice();
-            @$zk->disconnect();
-        }
-
-        if (!is_array($logs)) {
-            $logs = [];
-        }
+        // Lecture des pointages via pyzk (rats/zkteco getAttendance est instable sur ce K40).
+        $att = K40Template::attendance();
+        $logs = is_array($att['attendance'] ?? null) ? $att['attendance'] : [];
 
         // Tri chronologique.
         usort($logs, static fn ($a, $b) => strcmp((string) $a['timestamp'], (string) $b['timestamp']));
 
         // Dernière synchro.
         $lastSync = $db->query('SELECT last_sync_at FROM k40_state WHERE id = 1')->fetchColumn();
-        $lastSync = $lastSync ?: '0000-00-00 00:00:00';
+        // Date plancher VALIDE (MySQL 8 strict refuse '0000-00-00') : tout pointage est postérieur.
+        $lastSync = $lastSync ?: '2000-01-01 00:00:00';
 
         $recus = 0;
         $traites = 0;

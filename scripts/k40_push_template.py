@@ -164,6 +164,17 @@ def main():
         except Exception:
             pass
 
+        if action == "attendance":
+            att = conn.get_attendance() or []
+            out = {"ok": True, "attendance": [
+                {"id": str(a.user_id),
+                 "timestamp": a.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                 "status": int(a.status)}
+                for a in att
+            ]}
+            sys.stdout.write(json.dumps(out))
+            return 0
+
         if action == "remove":
             results = do_remove(conn, users)
         else:
