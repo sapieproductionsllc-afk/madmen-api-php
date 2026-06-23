@@ -47,8 +47,13 @@ final class K40Controller
     {
         try {
             $resume = $this->runSync();
-            // Relais vers le cloud (best-effort : n'échoue jamais la synchro locale).
-            $resume['relais'] = \MadMen\Core\RelaisCloud::pousser();
+            // Relais vers le cloud — best-effort : son propre try/catch pour ne JAMAIS
+            // faire échouer la synchro locale même si le cloud/relais a un souci.
+            try {
+                $resume['relais'] = \MadMen\Core\RelaisCloud::pousser();
+            } catch (Throwable $re) {
+                $resume['relais'] = ['ok' => false, 'erreur' => $re->getMessage()];
+            }
             Response::json($resume);
         } catch (Throwable $e) {
             Response::error($this->messagePublic('Synchronisation K40 échouée', $e), 502);

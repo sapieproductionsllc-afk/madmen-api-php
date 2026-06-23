@@ -67,6 +67,12 @@ final class RelaisCloud
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 20,
         ]);
+        // Bundle CA embarqué : PHP/Windows n'a pas de magasin de certificats configuré
+        // par défaut -> sans ça, curl échoue sur « unable to get local issuer certificate ».
+        $cacert = dirname(__DIR__, 2) . '/certs/cacert.pem';
+        if (is_file($cacert)) {
+            curl_setopt($ch, CURLOPT_CAINFO, $cacert);
+        }
         curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err  = curl_error($ch);
