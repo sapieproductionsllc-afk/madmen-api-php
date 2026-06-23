@@ -18,10 +18,10 @@ sur le serveur `ssmanager.uk` (89.167.42.121). Aucune modification du site `ssm-
 # 0) (si disque plein) faire un peu de place
 docker system prune -f
 
-# 1) Récupérer le code (branche de travail = code testé ; 'main' est en retard)
+# 1) Récupérer le code (déploiement depuis 'main', branche consolidée à jour)
 sudo mkdir -p /opt/madmen && sudo chown "$USER" /opt/madmen
 cd /opt/madmen
-git clone -b feat/controle-activite-fondations https://github.com/sapieproductionsllc-afk/madmen-api-php.git
+git clone -b main https://github.com/sapieproductionsllc-afk/madmen-api-php.git
 cd madmen-api-php
 
 # 2) Créer le .env de prod (secrets générés automatiquement)

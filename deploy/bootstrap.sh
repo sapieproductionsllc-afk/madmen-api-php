@@ -11,11 +11,14 @@ if [ -d madmen-api-php/.git ]; then
   echo ">> Repo présent -> mise à jour"
   cd madmen-api-php
   git fetch --all
-  git checkout feat/controle-activite-fondations
-  git pull --ff-only || true
+  # Déploiement depuis 'main' (branche consolidée). Bascule propre même si le clone
+  # existant était sur l'ancienne branche de travail. reset --hard ne touche pas .env
+  # (fichier non suivi). Pour revenir à l'ancienne branche : remplacer 'main' ci-dessous.
+  git checkout main 2>/dev/null || git checkout -b main origin/main
+  git reset --hard origin/main
 else
   rm -rf madmen-api-php
-  git clone -b feat/controle-activite-fondations https://github.com/sapieproductionsllc-afk/madmen-api-php.git
+  git clone -b main https://github.com/sapieproductionsllc-afk/madmen-api-php.git
   cd madmen-api-php
 fi
 
