@@ -661,7 +661,69 @@ paths:
                   ignores: { type: integer, example: 4 }
                   employes_inconnus: { type: array, items: { type: string } }
                   derniere_synchro: { type: string, example: "2026-06-19 17:40:00" }
+                  relais:
+                    type: object
+                    description: Résultat du relais vers le cloud (best-effort, n'échoue jamais la synchro locale).
+                    properties:
+                      ok: { type: boolean }
+                      employes: { type: integer }
+                      pointages: { type: integer }
+                      erreur: { type: string }
         '502': { description: Terminal injoignable ou désactivé }
+
+  /api/gateway/sync:
+    post:
+      tags: [Passerelle cloud]
+      summary: Réception passerelle — le bureau pousse employés + pointages vers le cloud
+      description: >
+        Relais à SENS UNIQUE (bureau -> cloud). La passerelle locale envoie ses employés
+        (upsert par matricule, ne touche jamais PIN/role) et ses pointages quotidiens
+        (référencés par matricule). Authentification par jeton GATEWAY_TOKEN via l'en-tête
+        Authorization: Bearer <token> (exemptée de l'auth JWT). Idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                employes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      matricule: { type: string, example: "ADMIN-001" }
+                      nom: { type: string }
+                      prenom: { type: string }
+                      email: { type: string, nullable: true }
+                      statut: { type: string, example: "actif" }
+                pointages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      matricule: { type: string, example: "ADMIN-001" }
+                      date: { type: string, example: "2026-06-23" }
+                      heure_entree: { type: string, nullable: true }
+                      heure_sortie: { type: string, nullable: true }
+                      retard_minutes: { type: integer }
+                      temps_present_minutes: { type: integer }
+                      temps_pause_minutes: { type: integer }
+                      nb_pauses: { type: integer }
+                      statut: { type: string, example: "present" }
+      responses:
+        '200':
+          description: Compte des éléments reçus / appliqués
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employes_recus: { type: integer }
+                  employes_appliques: { type: integer }
+                  pointages_recus: { type: integer }
+                  pointages_appliques: { type: integer }
+        '401': { description: Jeton passerelle invalide }
 
   /api/k40/users:
     get:
