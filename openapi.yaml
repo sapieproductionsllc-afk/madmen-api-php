@@ -91,7 +91,12 @@ paths:
                 items: { $ref: '#/components/schemas/Employe' }
     post:
       tags: [Employés]
-      summary: Enrôler un nouvel employé
+      summary: Créer un employé (matricule + PIN auto-générés)
+      description: >
+        Seuls `nom` et `prenom` sont requis. Le `matricule` (EMP-NNNN) est généré
+        automatiquement s'il n'est pas fourni, et un code PIN à 4 chiffres UNIQUE est
+        TOUJOURS généré côté serveur. La réponse contient `code_pin_genere` (PIN en clair,
+        affiché une seule fois).
       requestBody:
         required: true
         content:
@@ -99,10 +104,16 @@ paths:
             schema: { $ref: '#/components/schemas/EmployeInput' }
       responses:
         '201':
-          description: Employé créé
+          description: Employé créé. `code_pin_genere` = le PIN en clair (à noter, non ré-affiché).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Employe' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Employe'
+                  - type: object
+                    properties:
+                      code_pin_genere: { type: string, example: "8334", description: PIN généré en clair (affiché une seule fois) }
+        '409': { description: PIN déjà partagé par plusieurs comptes, ou collision de matricule }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /api/employes/{id}:
@@ -138,6 +149,26 @@ paths:
       summary: Supprimer un employé
       responses:
         '204': { description: Supprimé }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/employes/{id}/regenerer-pin:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+    post:
+      tags: [Employés]
+      summary: Régénérer le code PIN (cas du PIN oublié)
+      description: Génère un nouveau PIN à 4 chiffres UNIQUE et le renvoie en clair. Réservé au super_admin.
+      responses:
+        '200':
+          description: Nouveau PIN généré
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  matricule: { type: string }
+                  code_pin_genere: { type: string, example: "3876" }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/config/biometrie:
@@ -825,6 +856,47 @@ paths:
       summary: Paramètres des postes (seuils inactivité/justification, heartbeat)
       responses:
         '200': { description: Configuration des postes }
+
+  /api/postes:
+    get:
+      tags: [Postes]
+      summary: Lister les postes de travail
+      responses:
+        '200':
+          description: Liste des postes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    code: { type: string, example: PC-01 }
+                    nom: { type: string, example: Accueil }
+                    statut: { type: string, enum: [libre, occupe, verrouille, hors_ligne] }
+                    adresse_ip: { type: string, nullable: true }
+                    departement_id: { type: integer, nullable: true }
+                    created_at: { type: string }
+    post:
+      tags: [Postes]
+      summary: Créer un poste de travail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: PC-01, description: "Code unique (doit correspondre au kiosque)" }
+                nom: { type: string, example: Accueil }
+                adresse_ip: { type: string, example: "192.168.1.50" }
+                adresse_mac: { type: string }
+                departement_id: { type: integer }
+      responses:
+        '201': { description: Poste créé }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/postes/{code}/roster:
     get:
       tags: [Configuration]
