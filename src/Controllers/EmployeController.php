@@ -27,7 +27,10 @@ final class EmployeController
     private const SELECT_ENRICHED = "e.id, e.matricule, e.nom, e.prenom, e.photo_url,
         e.poste_id, e.departement_id, e.superieur_id, e.telephone, e.email, e.adresse,
         e.contact_urgence_nom, e.contact_urgence_tel, e.contact_urgence_lien,
-        e.salaire, e.statut, e.role, e.created_at,
+        e.salaire, e.statut, e.role,
+        e.sexe, e.date_naissance, e.nationalite, e.etat_civil,
+        e.date_embauche, e.type_contrat, e.notes_admin,
+        e.created_at,
         TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
         p.intitule AS poste_libelle,
         d.nom AS departement_nom,
@@ -44,6 +47,9 @@ final class EmployeController
         'matricule', 'nom', 'prenom', 'photo_url', 'poste_id', 'departement_id',
         'superieur_id', 'telephone', 'email', 'adresse', 'contact_urgence_nom',
         'contact_urgence_tel', 'contact_urgence_lien', 'salaire', 'statut',
+        // Champs RH additionnels (migration 052) — tous NULLABLE, éditables via PUT.
+        'sexe', 'date_naissance', 'nationalite', 'etat_civil',
+        'date_embauche', 'type_contrat', 'notes_admin',
     ];
 
     public function index(): void
@@ -258,6 +264,50 @@ final class EmployeController
             $stmt->execute($data);
         } catch (PDOException $e) {
             self::erreurIntegrite($e); // même traduction d'erreur qu'à la création
+            throw $e;
+        }
+
+        Response::json($this->find($id) ?? []);
+    }
+
+    public function updateIdentifiants(array $params): void
+    {
+        $id = (int) $params['id'];
+        $employe = $this->find($id);
+        if ($employe === null) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $body = Request::body();
+        $data = [];
+
+        if (isset($body['matricule'])) {
+            $matricule = trim((string) $body['matricule']);
+            if ($matricule === '') {
+                Response::error('Le matricule ne peut pas être vide', 422);
+            }
+            $data['matricule'] = $matricule;
+        }
+
+        if (isset($body['code_pin'])) {
+            if (!preg_match('/^\d{4}$/', (string) $body['code_pin'])) {
+                Response::error("Le code PIN doit contenir exactement 4 chiffres", 422);
+            }
+            $data['code_pin_hash'] = password_hash((string) $body['code_pin'], PASSWORD_BCRYPT);
+        }
+
+        if ($data === []) {
+            Response::error('Aucun champ à mettre à jour', 422);
+        }
+
+        $set = implode(', ', array_map(static fn ($c) => "$c = :$c", array_keys($data)));
+        $data['id'] = $id;
+
+        try {
+            $stmt = Database::connection()->prepare("UPDATE employe SET $set WHERE id = :id");
+            $stmt->execute($data);
+        } catch (PDOException $e) {
+            self::erreurIntegrite($e);
             throw $e;
         }
 

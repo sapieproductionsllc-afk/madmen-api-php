@@ -21,9 +21,13 @@ final class RhController
         $this->verifierEmploye($employeId);
 
         $stmt = Database::connection()->prepare(
-            'SELECT id, titre, type, url, taille_octets, created_at
-             FROM document_rh WHERE employe_id = :emp
-             ORDER BY created_at DESC, id DESC'
+            'SELECT d.id, d.titre, d.type, d.description, d.created_at,
+                    d.taille_octets, d.url,
+                    TRIM(CONCAT(a.prenom, " ", a.nom)) AS ajoute_par_nom
+             FROM document_rh d
+             LEFT JOIN employe a ON a.id = d.ajoute_par
+             WHERE d.employe_id = :emp
+             ORDER BY d.created_at DESC, d.id DESC'
         );
         $stmt->execute(['emp' => $employeId]);
 
@@ -60,13 +64,17 @@ final class RhController
 
     private function formateDocument(array $d): array
     {
+        $nom = isset($d['ajoute_par_nom']) ? trim((string) $d['ajoute_par_nom']) : '';
+
         return [
-            'id'            => (int) $d['id'],
-            'titre'         => $d['titre'],
-            'type'          => $d['type'],
-            'url'           => $d['url'],
-            'taille_octets' => $d['taille_octets'] !== null ? (int) $d['taille_octets'] : null,
-            'created_at'    => $d['created_at'] ?? null,
+            'id'             => (int) $d['id'],
+            'titre'          => $d['titre'],
+            'type'           => $d['type'],
+            'description'    => $d['description'] ?? null,
+            'created_at'     => $d['created_at'] ?? null,
+            'taille_octets'  => $d['taille_octets'] !== null ? (int) $d['taille_octets'] : null,
+            'ajoute_par_nom' => $nom !== '' ? $nom : null,
+            'url'            => $d['url'] ?? null,
         ];
     }
 
