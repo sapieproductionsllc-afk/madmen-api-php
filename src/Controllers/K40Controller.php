@@ -288,6 +288,11 @@ final class K40Controller
         // Tri chronologique.
         usort($logs, static fn ($a, $b) => strcmp((string) $a['timestamp'], (string) $b['timestamp']));
 
+        // ANTI-PERTE : journalise TOUT le lot au journal brut AVANT le filtrage par le
+        // curseur. Un punch que le curseur sauterait (ex. horloge K40 reculée -> ts <
+        // curseur) reste ainsi durablement enregistré et rejouable. Idempotent.
+        K40Pointage::journaliserLot($db, $logs);
+
         // Dernière synchro.
         $lastSync = $db->query('SELECT last_sync_at FROM k40_state WHERE id = 1')->fetchColumn();
         // Date plancher VALIDE (MySQL 8 strict refuse '0000-00-00') : tout pointage est postérieur.

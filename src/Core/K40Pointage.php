@@ -367,4 +367,37 @@ final class K40Pointage
             'UPDATE k40_punch_brut SET employe_id = ?, decision = ? WHERE client_uuid = ?'
         )->execute([$employeId, $decision, $uuid]);
     }
+
+    /**
+     * Journalise EN BLOC tout un lot de punchs bruts (pull), AVANT tout filtrage par
+     * curseur. Garantit qu'un punch que le curseur sauterait (ex. horloge K40 reculée
+     * -> ts < curseur, ou tout autre saut) reste DURABLEMENT enregistré et rejouable.
+     * Idempotent (INSERT IGNORE sur client_uuid). Inséré par paquets de 500.
+     *
+     * @param array<int,array{id?:mixed,timestamp?:mixed}> $logs
+     */
+    public static function journaliserLot(PDO $db, array $logs): void
+    {
+        $batch = [];
+        foreach ($logs as $log) {
+            $dev = (string) ($log['id'] ?? '');
+            $ts  = (string) ($log['timestamp'] ?? '');
+            if ($dev === '' || $ts === '') {
+                continue;
+            }
+            $t = strtotime($ts);
+            $norm = $t !== false ? date('Y-m-d H:i:s', $t) : $ts;
+            $batch[] = [$dev, $norm, 'k40', self::brutUuid($dev, $ts)];
+        }
+        foreach (array_chunk($batch, 500) as $chunk) {
+            $ph = implode(',', array_fill(0, count($chunk), '(?, ?, ?, ?)'));
+            $params = [];
+            foreach ($chunk as $row) {
+                array_push($params, ...$row);
+            }
+            $db->prepare(
+                "INSERT IGNORE INTO k40_punch_brut (device_user_id, horodatage, source, client_uuid) VALUES {$ph}"
+            )->execute($params);
+        }
+    }
 }
