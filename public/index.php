@@ -40,6 +40,7 @@ use MadMen\Controllers\BiometrieController;
 use MadMen\Controllers\ConfigController;
 use MadMen\Controllers\K40Controller;
 use MadMen\Controllers\GatewayController;
+use MadMen\Controllers\RelayController;
 use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
 use MadMen\Controllers\MotifController;
@@ -382,6 +383,12 @@ if (($k40Config['role'] ?? 'cloud') === 'gateway') {
 
 // --- Réception passerelle (cloud) : le bureau pousse employés + pointages ici. Sens unique. ---
 $router->post('/api/gateway/sync', [GatewayController::class, 'sync']);
+
+// --- Reporter distribué : coordination "tour de garde" (un PC relaie à la fois) ---
+// claim = reporters (auth GATEWAY_TOKEN, exemptée du JWT). health = dashboard (auth JWT).
+// Les pointages, eux, sont poussés au récepteur /iclock existant (HTTPS).
+$router->post('/api/relay/claim', [RelayController::class, 'claim']);
+$router->get('/api/relay/health', [RelayController::class, 'health']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode

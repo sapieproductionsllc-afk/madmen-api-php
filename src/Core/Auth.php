@@ -44,6 +44,7 @@ final class Auth
             || $uri === '/api/auth/logout'
             || str_starts_with($uri, '/iclock/')
             || $uri === '/api/gateway/sync' // réception passerelle : auth par GATEWAY_TOKEN dans le contrôleur
+            || $uri === '/api/relay/claim'  // tour de garde reporter : auth par GATEWAY_TOKEN dans le contrôleur
         ) {
             return;
         }
