@@ -1,0 +1,13 @@
+# Edge ADMS MadMen — config du conteneur dédié `madmen-edge`.
+# Écoute HTTP simple sur :8090 et ne sert QUE /iclock/* -> madmen-api:8000.
+# Tout autre chemin -> 404. Aucune redirection HTTPS (le K40 firmware 6.60 ne la suit pas).
+# N'altère EN RIEN le Caddy partagé ssm-caddy (80/443, autres sites).
+:8090 {
+	@iclock path /iclock /iclock/*
+	handle @iclock {
+		reverse_proxy madmen-api:8000
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

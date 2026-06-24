@@ -49,6 +49,22 @@ services:
       db:
         condition: service_healthy
 
+  # Edge ADMS : conteneur Caddy dédié qui expose UNIQUEMENT /iclock/* en HTTP
+  # simple (port 8090) pour le K40 (firmware HTTP-only). Tout autre chemin -> 404.
+  # N'altère PAS le Caddy partagé ssm-caddy ; ne redémarre pas l'API (service neuf).
+  edge:
+    image: caddy:2-alpine
+    container_name: madmen-edge
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./edge/Caddyfile.edge:/etc/caddy/Caddyfile:ro   # relatif à deploy/ -> deploy/edge/Caddyfile.edge
+    networks: [internal]                                 # joint madmen-api via le réseau privé
+    depends_on:
+      api:
+        condition: service_started
+
 networks:
   ssm:                  # réseau du Caddy existant -> Caddy peut joindre 'madmen-api'
     external: true
