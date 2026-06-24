@@ -364,6 +364,11 @@ $k40Config = require dirname(__DIR__) . '/config/k40.php';
 // Ces routes (interrogation directe du K40 + pont pyzk) n'ont de sens que sur la
 // PASSERELLE locale (K40_ROLE=gateway). En 'cloud' (mutualisé) elles ne sont PAS
 // montées : le cloud ne peut pas joindre le K40 (NAT) et n'a pas proc_open/UDP.
+
+// Diagnostic PUSH (lecture seule de k40_punch_brut) — monté PARTOUT, cloud inclus :
+// il ne touche pas le terminal, il lit seulement ce qui est arrivé via /iclock.
+$router->get('/api/k40/push-status', [K40Controller::class, 'pushStatus']);
+
 if (($k40Config['role'] ?? 'cloud') === 'gateway') {
     $router->get('/api/k40/status', [K40Controller::class, 'status']);
     $router->post('/api/k40/sync', [K40Controller::class, 'sync']);

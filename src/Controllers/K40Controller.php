@@ -17,6 +17,32 @@ use Throwable;
  */
 final class K40Controller
 {
+    /**
+     * GET /api/k40/push-status — santé du flux PUSH/ADMS. Lecture seule.
+     * Compte ce qui arrive réellement dans le journal brut append-only.
+     * Côté cloud (qui ne peut PAS faire de pull), toute ligne = un punch poussé
+     * par le terminal -> brut_total > 0 prouve que le K40 pousse bien.
+     */
+    public function pushStatus(): void
+    {
+        $db    = Database::connection();
+        $total = (int) $db->query('SELECT COUNT(*) FROM k40_punch_brut')->fetchColumn();
+        $parSource = $db->query(
+            'SELECT source, COUNT(*) AS n, MAX(horodatage) AS dernier_punch,
+                    MAX(created_at) AS dernier_recu
+             FROM k40_punch_brut GROUP BY source'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $derniers = $db->query(
+            'SELECT device_user_id, horodatage, source, decision, created_at
+             FROM k40_punch_brut ORDER BY id DESC LIMIT 10'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        Response::json([
+            'brut_total' => $total,
+            'par_source' => $parSource,
+            'derniers'   => $derniers,
+        ]);
+    }
+
     /** GET /api/k40/status — teste la connexion au terminal. */
     public function status(): void
     {
