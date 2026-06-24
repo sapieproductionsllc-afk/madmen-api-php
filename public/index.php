@@ -389,6 +389,7 @@ $router->post('/api/gateway/sync', [GatewayController::class, 'sync']);
 // Les pointages, eux, sont poussés au récepteur /iclock existant (HTTPS).
 $router->post('/api/relay/claim', [RelayController::class, 'claim']);
 $router->get('/api/relay/health', [RelayController::class, 'health']);
+$router->get('/api/relay/reporters', [RelayController::class, 'reporters']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode

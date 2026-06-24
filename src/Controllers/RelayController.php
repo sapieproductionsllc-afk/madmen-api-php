@@ -66,6 +66,13 @@ final class RelayController
             ->fetch(PDO::FETCH_ASSOC);
         $granted = is_array($row) && ($row['holder'] ?? null) === $holder;
 
+        // Suivi de FLOTTE : ce reporter est "vu" maintenant (chaque PC claim à chaque
+        // tour) -> on peut lister tous les PC qui relaient et repérer les absents.
+        $db->prepare(
+            "INSERT INTO relay_reporters (hostname, last_seen) VALUES (:h, NOW())
+             ON DUPLICATE KEY UPDATE last_seen = NOW()"
+        )->execute([':h' => $holder]);
+
         Response::json([
             'granted'     => $granted,
             'lease_until' => $granted ? ($row['lease_until'] ?? null) : null,
@@ -84,11 +91,38 @@ final class RelayController
         )->fetch(PDO::FETCH_ASSOC);
 
         $silence = $row && $row['silence_seconds'] !== null ? (int) $row['silence_seconds'] : null;
+
+        // Nombre de PC ayant relayé dans les 2 dernières minutes (flotte en ligne).
+        $online = (int) $db->query(
+            "SELECT COUNT(*) FROM relay_reporters WHERE last_seen > NOW() - INTERVAL 120 SECOND"
+        )->fetchColumn();
+
         Response::json([
-            'last_relay_at'   => $row['last_relay_at'] ?? null,
-            'holder'          => $row['holder'] ?? null,
-            'silence_seconds' => $silence,
-            'quiet'           => $silence === null ? true : ($silence > self::QUIET_SECONDS),
+            'last_relay_at'    => $row['last_relay_at'] ?? null,
+            'holder'           => $row['holder'] ?? null,
+            'silence_seconds'  => $silence,
+            'quiet'            => $silence === null ? true : ($silence > self::QUIET_SECONDS),
+            'reporters_online' => $online,
         ]);
+    }
+
+    /** GET /api/relay/reporters — liste de la flotte (tous les PC qui relaient). */
+    public function reporters(): void
+    {
+        $db   = Database::connection();
+        $rows = $db->query(
+            "SELECT hostname, last_seen,
+                    TIMESTAMPDIFF(SECOND, last_seen, NOW()) AS age_seconds
+             FROM relay_reporters ORDER BY last_seen DESC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $online = 0;
+        foreach ($rows as &$r) {
+            $r['online'] = ((int) $r['age_seconds']) <= 120; // vu il y a < 2 min
+            if ($r['online']) {
+                $online++;
+            }
+        }
+        unset($r);
+        Response::json(['total' => count($rows), 'online' => $online, 'reporters' => $rows]);
     }
 }
