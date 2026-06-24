@@ -231,15 +231,14 @@ final class Presence
      */
     public static function estAutoParti(string $statut, ?array $fenetre, ?string $now = null): bool
     {
-        if ($fenetre === null) {
-            return false; // jour de repos : pas de fin prévue
-        }
-        if ($statut !== 'present' && $statut !== 'retard') {
-            return false; // seuls present/retard basculent en parti
-        }
-        $ref = $now !== null ? strtotime($now) : time();
-
-        return $ref >= self::finJour(date('Y-m-d', $ref), $fenetre);
+        // POLITIQUE (juin 2026) : on NE bascule PLUS automatiquement en « parti » à l'heure
+        // de fin prévue. Un employé reste PRÉSENT tant qu'il n'a pas POINTÉ SA SORTIE (un
+        // pointage de départ met déjà statut='parti' dans K40Pointage). Le marquer « parti »
+        // alors qu'il est encore au travail (il n'a juste pas encore pointé) n'a aucun sens.
+        // Le DÉCOMPTE du temps de travail, lui, reste borné à la fenêtre par presenceMinutes
+        // (on arrête de compter à l'heure de fin, sans heures sup automatiques).
+        unset($statut, $fenetre, $now); // conservés pour compat. d'appel ; logique désactivée
+        return false;
     }
 
     /**
