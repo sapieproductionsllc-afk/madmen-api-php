@@ -81,25 +81,79 @@ def one_cycle(cfg):
     return {"step": "push", "granted": True, "count": len(punches), "http": st, "resp": resp}
 
 
-def main():
-    cfg = {
-        "cloud": os.environ.get("CLOUD_URL", "https://api-madmen.ssmanager.uk").rstrip("/"),
-        "token": os.environ.get("GATEWAY_TOKEN", ""),
-        "ip": os.environ.get("K40_IP", "192.168.1.201"),
-        "port": int(os.environ.get("K40_PORT", "4370")),
-        "password": int(os.environ.get("K40_PASSWORD", "0")),
-        "timeout": int(os.environ.get("K40_TIMEOUT", "10")),
-        "sn": os.environ.get("K40_SN", "AKK0122578806"),
-        "holder": os.environ.get("HOLDER", socket.gethostname()),
-        "interval": int(os.environ.get("INTERVAL", "45")),
+def _app_dir():
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+    d = os.path.join(base, "MadMen")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+
+def _load_config_file():
+    """Config de repli (KEY=VALUE) depuis %LOCALAPPDATA%\\MadMen\\reporter.env — permet de
+    tourner via une TÂCHE PLANIFIÉE Windows sans variables d'env passées par l'app."""
+    vals = {}
+    path = os.environ.get("REPORTER_CONFIG") or os.path.join(_app_dir(), "reporter.env")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith("#") and "=" in s:
+                    k, v = s.split("=", 1)
+                    vals[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return vals
+
+
+def _log(msg):
+    """Écrit le DERNIER état dans reporter.log (visibilité quand lancé sans console)."""
+    try:
+        with open(os.path.join(_app_dir(), "reporter.log"), "w", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+    try:
+        if sys.stderr:
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def _build_cfg():
+    fv = _load_config_file()
+
+    def g(key, default):
+        v = os.environ.get(key) or fv.get(key)  # env d'abord, sinon fichier, sinon défaut
+        return v if v else default
+
+    return {
+        "cloud": g("CLOUD_URL", "https://api-madmen.ssmanager.uk").rstrip("/"),
+        "token": g("GATEWAY_TOKEN", ""),
+        "ip": g("K40_IP", "192.168.1.201"),
+        "port": int(g("K40_PORT", "4370")),
+        "password": int(g("K40_PASSWORD", "0")),
+        "timeout": int(g("K40_TIMEOUT", "10")),
+        "sn": g("K40_SN", "AKK0122578806"),
+        "holder": g("HOLDER", socket.gethostname()),
+        "interval": int(g("INTERVAL", "45")),
     }
+
+
+def main():
     if "--once" in sys.argv or os.environ.get("ONESHOT", "") == "1":
-        sys.stdout.write(json.dumps(one_cycle(cfg)))
+        sys.stdout.write(json.dumps(one_cycle(_build_cfg())))
         return 0
     while True:
+        # On RELIT la config à CHAQUE tour : si l'app écrit reporter.env APRÈS le démarrage
+        # de la tâche (course au boot/à l'install), le jeton est ramassé dès le tour suivant
+        # — aucun redémarrage nécessaire. Le reporter devient insensible à l'ordre de boot.
+        cfg = _build_cfg()
         r = one_cycle(cfg)
-        sys.stderr.write(json.dumps(r) + "\n")
-        sys.stderr.flush()
+        _log(json.dumps(r))
         time.sleep(cfg["interval"])
 
 
