@@ -48,6 +48,9 @@ final class Presence
         return $stmt->fetchColumn() === 'entree';
     }
 
+    /** Avance (minutes) par défaut quand l'employé n'a pas d'horaire défini. */
+    public const AVANCE_DEFAUT = 30;
+
     /** Horaire global par défaut (config + tolérance 0 + lundi→vendredi). */
     public static function defaultHoraire(): array
     {
@@ -59,6 +62,9 @@ final class Presence
             'dejeuner_debut' => $cfg['dejeuner_debut'] ?? '12:30',
             'dejeuner_fin'   => $cfg['dejeuner_fin'] ?? '13:30',
             'tolerance'      => 0,
+            // Avance autorisée avant l'heure d'arrivée (pendant « en avance » de la
+            // tolérance de retard). Utilisée pour borner la fenêtre des punchs K40.
+            'avance'         => self::AVANCE_DEFAUT,
             'jours'          => '1,2,3,4,5',
         ];
     }
@@ -71,7 +77,7 @@ final class Presence
     {
         $stmt = $db->prepare(
             'SELECT heure_arrivee, heure_depart, pause_debut, pause_fin,
-                    tolerance_minutes, jours_travailles
+                    tolerance_minutes, avance_minutes, jours_travailles
              FROM horaire_employe WHERE employe_id = ?'
         );
         $stmt->execute([$employeId]);
@@ -86,6 +92,7 @@ final class Presence
             'dejeuner_debut' => $row['pause_debut'] !== null ? substr((string) $row['pause_debut'], 0, 5) : null,
             'dejeuner_fin'   => $row['pause_fin'] !== null ? substr((string) $row['pause_fin'], 0, 5) : null,
             'tolerance'      => (int) $row['tolerance_minutes'],
+            'avance'         => (int) $row['avance_minutes'],
             'jours'          => (string) $row['jours_travailles'],
         ];
     }
@@ -101,7 +108,7 @@ final class Presence
     public static function planning(PDO $db, int $employeId): array
     {
         $stmt = $db->prepare(
-            'SELECT heure_arrivee, heure_depart, tolerance_minutes, jours_travailles, planning
+            'SELECT heure_arrivee, heure_depart, tolerance_minutes, avance_minutes, jours_travailles, planning
              FROM horaire_employe WHERE employe_id = ?'
         );
         $stmt->execute([$employeId]);
@@ -131,7 +138,11 @@ final class Presence
                 }
             }
 
-            return ['jours' => $jours, 'tolerance' => (int) $row['tolerance_minutes']];
+            return [
+                'jours'     => $jours,
+                'tolerance' => (int) $row['tolerance_minutes'],
+                'avance'    => (int) $row['avance_minutes'],
+            ];
         }
 
         // 2) Repli : horaire unique répliqué sur chaque jour travaillé.
@@ -145,12 +156,17 @@ final class Presence
             $jours[(int) $j] = ['debut' => $h['debut'], 'fin' => $h['fin']];
         }
 
-        return ['jours' => $jours, 'tolerance' => (int) $h['tolerance']];
+        return [
+            'jours'     => $jours,
+            'tolerance' => (int) $h['tolerance'],
+            'avance'    => (int) ($h['avance'] ?? self::AVANCE_DEFAUT),
+        ];
     }
 
     /**
      * Fenêtre de travail prévue pour une DATE donnée selon le planning, ou null si
-     * c'est un jour de repos (non saisi). Forme : ['debut','fin','tolerance'].
+     * c'est un jour de repos (non saisi). Forme : ['debut','fin','tolerance','avance'].
+     * 'avance' = minutes autorisées AVANT 'debut' pour pointer son arrivée (K40).
      */
     public static function fenetreJour(array $planning, string $date): ?array
     {
@@ -159,7 +175,71 @@ final class Presence
             return null; // repos
         }
 
-        return $planning['jours'][$j] + ['tolerance' => $planning['tolerance'] ?? 0];
+        return $planning['jours'][$j] + [
+            'tolerance' => $planning['tolerance'] ?? 0,
+            'avance'    => $planning['avance'] ?? self::AVANCE_DEFAUT,
+        ];
+    }
+
+    /**
+     * Instant (timestamp Unix) borne BASSE d'acceptation d'un punch K40 pour la
+     * fenêtre d'un jour : (debut - avance_minutes). Avant cet instant, le punch est
+     * « trop tôt » et doit être ignoré.
+     */
+    public static function debutAvecAvance(string $date, array $fenetre): int
+    {
+        $debut = strtotime($date . ' ' . $fenetre['debut']);
+
+        return $debut - ((int) ($fenetre['avance'] ?? self::AVANCE_DEFAUT)) * 60;
+    }
+
+    /** Instant (timestamp Unix) de FIN prévue du jour pour une fenêtre. */
+    public static function finJour(string $date, array $fenetre): int
+    {
+        return strtotime($date . ' ' . $fenetre['fin']);
+    }
+
+    /**
+     * Vrai si l'instant $ts est AVANT (debut - avance_minutes) de sa fenêtre de jour :
+     * l'employé pointe trop en avance -> le punch K40 doit être ignoré.
+     */
+    public static function estTropTot(string $ts, array $fenetre): bool
+    {
+        $t = strtotime($ts);
+
+        return $t < self::debutAvecAvance(date('Y-m-d', $t), $fenetre);
+    }
+
+    /**
+     * Vrai si l'instant $ts est À/APRÈS l'heure de FIN prévue du jour : la personne
+     * est censée être partie. Un punch K40 à ce moment vaut un DÉPART (ou est ignoré
+     * s'il n'y a pas d'arrivée / si elle est déjà partie).
+     */
+    public static function estApresFin(string $ts, array $fenetre): bool
+    {
+        return strtotime($ts) >= self::finJour(date('Y-m-d', strtotime($ts)), $fenetre);
+    }
+
+    /**
+     * AUTO-PARTI (à l'AFFICHAGE seulement, sans pointage de sortie) : un employé
+     * dont le statut du jour est 'present'/'retard' et dont l'heure de fin prévue du
+     * jour est dépassée (maintenant >= fin) est considéré « parti ».
+     *
+     * @param string      $statut Statut du jour issu de la table pointage.
+     * @param array|null  $fenetre Fenêtre du jour (Presence::fenetreJour) ; null = repos.
+     * @param string|null $now    Instant de référence (défaut : maintenant).
+     */
+    public static function estAutoParti(string $statut, ?array $fenetre, ?string $now = null): bool
+    {
+        if ($fenetre === null) {
+            return false; // jour de repos : pas de fin prévue
+        }
+        if ($statut !== 'present' && $statut !== 'retard') {
+            return false; // seuls present/retard basculent en parti
+        }
+        $ref = $now !== null ? strtotime($now) : time();
+
+        return $ref >= self::finJour(date('Y-m-d', $ref), $fenetre);
     }
 
     /**

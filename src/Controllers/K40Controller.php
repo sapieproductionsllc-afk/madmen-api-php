@@ -314,15 +314,26 @@ final class K40Controller
                 continue;
             }
 
-            if (K40Pointage::record($db, $devId, $ts, $cfg['heure_limite']) === 'traite') {
-                $traites++;
+            $res = K40Pointage::record($db, $devId, $ts, $cfg['heure_limite']);
+            if ($res === 'inconnu') {
+                // Identifiant terminal NON MAPPÉ : on ne dépasse pas ce punch (il sera
+                // relu et enregistré une fois l'employé mappé). La dédup neutralise
+                // tout re-traitement.
+                $ignores++;
+                $inconnus[$devId] = true;
+                $bloque = true;
+            } else {
+                // 'traite' (enregistré) OU 'ignore' (filtré par les règles d'horaire :
+                // repos, trop tôt, après le départ...). Dans les DEUX cas la décision
+                // est définitive -> le curseur peut avancer (inutile de relire).
+                if ($res === 'traite') {
+                    $traites++;
+                } else {
+                    $ignores++;
+                }
                 if (!$bloque && $ts > $maxTs) {
                     $maxTs = $ts;
                 }
-            } else {
-                $ignores++;
-                $inconnus[$devId] = true;
-                $bloque = true; // ne pas dépasser ce punch non mappé
             }
         }
 

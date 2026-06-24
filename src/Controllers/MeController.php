@@ -5,6 +5,7 @@ namespace MadMen\Controllers;
 
 use MadMen\Core\Auth;
 use MadMen\Core\Database;
+use MadMen\Core\Identite;
 use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
@@ -53,6 +54,25 @@ final class MeController
         }
 
         Response::json($e);
+    }
+
+    /**
+     * POST /api/me/regenerer-pin — l'employé régénère SON propre code PIN (4 chiffres
+     * UNIQUE). Scopé au jeton : il ne peut changer que le sien. Renvoie le nouveau PIN.
+     */
+    public function regenererPin(): void
+    {
+        $id = $this->employeId();
+        $db = Database::connection();
+        try {
+            $pin = Identite::genererPinUnique($db);
+        } catch (\RuntimeException $e) {
+            Response::error('Impossible de générer un PIN unique (réessayez)', 507);
+        }
+        $db->prepare('UPDATE employe SET code_pin_hash = ? WHERE id = ?')
+           ->execute([password_hash($pin, PASSWORD_BCRYPT), $id]);
+
+        Response::json(['code_pin_genere' => $pin]);
     }
 
     /** GET /api/me/pointages?from=YYYY-MM-DD&to=YYYY-MM-DD — historique de présence. */

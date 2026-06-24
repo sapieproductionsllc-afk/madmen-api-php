@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Presence;
 use MadMen\Core\Response;
 
 final class DashboardController
@@ -12,12 +13,7 @@ final class DashboardController
     public function presence(): void
     {
         $db = Database::connection();
-
-        // Présents = ont pointé une ENTRÉE aujourd'hui ET ne sont pas repartis (statut <> 'parti').
-        $presents = (int) $db->query(
-            "SELECT COUNT(DISTINCT employe_id) FROM pointage
-             WHERE date = CURDATE() AND heure_entree IS NOT NULL AND statut <> 'parti'"
-        )->fetchColumn();
+        $today = date('Y-m-d');
 
         $enConge = (int) $db->query(
             "SELECT COUNT(*) FROM employe WHERE statut = 'conge'"
@@ -48,6 +44,30 @@ final class DashboardController
              WHERE e.statut <> 'suspendu'
              ORDER BY e.nom, e.prenom"
         )->fetchAll();
+
+        // AUTO-PARTI (affichage) : un agent 'present'/'retard' dont l'heure de fin
+        // prévue du jour est dépassée est affiché 'parti'. Calcul en PHP via le
+        // planning de chaque employé. Mémo planning pour éviter les requêtes redondantes.
+        // Présents = ENTRÉE pointée aujourd'hui ET ni 'parti' ni AUTO-parti.
+        $presents = 0;
+        $planningCache = [];
+        foreach ($agents as &$agent) {
+            $statut = (string) $agent['statut'];
+            $eid = (int) $agent['id'];
+            if (($statut === 'present' || $statut === 'retard') && $agent['arrivee'] !== null) {
+                $planningCache[$eid] ??= Presence::planning($db, $eid);
+                $fenetre = Presence::fenetreJour($planningCache[$eid], $today);
+                if (Presence::estAutoParti($statut, $fenetre)) {
+                    $agent['statut'] = 'parti';
+                    $statut = 'parti';
+                }
+            }
+            // Compte des présents : entrée pointée et pas (auto-)parti.
+            if ($agent['arrivee'] !== null && $statut !== 'parti') {
+                $presents++;
+            }
+        }
+        unset($agent);
 
         Response::json([
             'presents' => $presents,

@@ -15,19 +15,25 @@ use PDO;
 final class K40Pointage
 {
     /**
-     * Enregistre un « punch ». Renvoie 'traite' si rattaché à un employé,
-     * 'ignore' si l'identifiant terminal est inconnu.
+     * Enregistre un « punch » K40. Renvoie :
+     *   - 'traite'  : rattaché à un employé ET enregistré (entrée/sortie) ;
+     *   - 'ignore'  : rattaché à un employé mais FILTRÉ par les règles d'horaire
+     *                 (jour de repos, trop tôt, après le départ sans arrivée, déjà
+     *                 parti) -> aucun pointage créé. Décision DÉFINITIVE : le curseur
+     *                 de synchro peut avancer (inutile de relire ce punch) ;
+     *   - 'inconnu' : identifiant terminal NON MAPPÉ -> punch jamais enregistré ;
+     *                 le curseur ne doit pas dépasser ce punch (il sera relu et
+     *                 enregistré une fois l'employé mappé).
      */
     public static function record(PDO $db, string $deviceUserId, string $timestamp, string $heureLimite): string
     {
         $employeId = self::resolveEmploye($db, $deviceUserId);
         if ($employeId === null) {
-            return 'ignore';
+            return 'inconnu';
         }
 
-        self::enregistrer($db, $employeId, self::appareilId($db), $timestamp, $heureLimite);
-
-        return 'traite';
+        // Filtrage des règles d'horaire UNIQUEMENT pour la source K40.
+        return self::enregistrer($db, $employeId, self::appareilId($db), $timestamp, $heureLimite);
     }
 
     /**
@@ -40,6 +46,8 @@ final class K40Pointage
      */
     public static function recordManuel(PDO $db, int $employeId, string $ts, ?string $type = null): void
     {
+        // source='manuel' => JAMAIS filtré : l'admin a toujours raison (jour de repos,
+        // hors fenêtre, après le départ... tout est accepté tel quel).
         self::enregistrer($db, $employeId, self::appareilId($db), $ts, '', 'manuel', $type);
     }
 
@@ -88,8 +96,11 @@ final class K40Pointage
      * Une sortie verrouille le PC et met à jour les heures sup.
      *
      * @param string $heureLimite conservé pour compat ; le retard est calculé par Presence.
+     * @return string 'traite' si un passage a été enregistré ; 'ignore' si filtré (K40
+     *               hors fenêtre / jour de repos / après le départ). Le pointage MANUEL
+     *               n'est jamais filtré -> renvoie toujours 'traite'.
      */
-    private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite, string $source = 'k40', ?string $forceType = null): void
+    private static function enregistrer(PDO $db, int $employeId, int $appareilId, string $ts, string $heureLimite, string $source = 'k40', ?string $forceType = null): string
     {
         $date = substr($ts, 0, 10);
         // Horaire PROPRE à l'employé (ou global par défaut) : référence des calculs.
@@ -97,8 +108,34 @@ final class K40Pointage
         // Fenêtre du JOUR (emploi du temps par jour) pour le retard ; null = repos.
         $fenetre = Presence::fenetreJour(Presence::planning($db, $employeId), $date);
 
-        // 1) Type : forcé (saisie manuelle explicite) sinon à BASCULE d'après le
-        //    nombre de passages du jour (0,2,4...=entrée ; 1,3,5...=sortie).
+        // 0) FILTRAGE K40 conscient de l'horaire (UNIQUEMENT source='k40' ; le manuel
+        //    n'est JAMAIS filtré). On force éventuellement un type 'sortie' (départ).
+        if ($source === 'k40') {
+            // a) Jour de REPOS (aucune fenêtre prévue) -> on ignore tout.
+            if ($fenetre === null) {
+                return 'ignore';
+            }
+            // b) Trop TÔT : avant (debut - avance_minutes) -> on ignore.
+            if (Presence::estTropTot($ts, $fenetre)) {
+                return 'ignore';
+            }
+            // c) À/APRÈS l'heure de DÉPART prévue : la personne est censée être partie.
+            if (Presence::estApresFin($ts, $fenetre)) {
+                [$aArrivee, $aSortie] = self::etatJourK40($db, $employeId, $date);
+                if (!$aArrivee || $aSortie) {
+                    // Aucune arrivée ce jour (1er punch après fin) OU déjà partie
+                    // (sortie déjà enregistrée) -> on ignore (reste 'parti').
+                    return 'ignore';
+                }
+                // Arrivée présente sans sortie -> ce punch est le DÉPART.
+                $forceType = 'sortie';
+            }
+            // d) Sinon (dans [debut - avance, fin)) -> enregistrement NORMAL ci-dessous.
+        }
+
+        // 1) Type : forcé (saisie manuelle explicite OU départ K40 imposé ci-dessus)
+        //    sinon à BASCULE d'après le nombre de passages du jour (0,2,4...=entrée ;
+        //    1,3,5...=sortie).
         $stmt = $db->prepare('SELECT COUNT(*) FROM pointage_passage WHERE employe_id = ? AND date = ?');
         $stmt->execute([$employeId, $date]);
         $type = $forceType ?? ((((int) $stmt->fetchColumn()) % 2 === 0) ? 'entree' : 'sortie');
@@ -118,7 +155,7 @@ final class K40Pointage
         if ($ins->rowCount() === 0) {
             // Doublon : ce punch est déjà enregistré. Le résumé du jour est déjà
             // correct -> rien à recalculer (opération sûre à rejouer indéfiniment).
-            return;
+            return 'traite';
         }
 
         // 3) Recharge tous les passages du jour et recalcule le résumé.
@@ -172,6 +209,33 @@ final class K40Pointage
         if ($type === 'sortie') {
             self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie'], $horaire);
         }
+
+        return 'traite';
+    }
+
+    /**
+     * État K40 d'un jour pour le filtrage : [aArrivee, aSortie].
+     *  - aArrivee : au moins un passage 'entree' existe ce jour ;
+     *  - aSortie  : le DERNIER passage du jour est une 'sortie' (la personne est
+     *               actuellement repartie). Sert à décider, pour un punch >= fin, si
+     *               on l'enregistre comme départ ou si on l'ignore (déjà parti).
+     *
+     * @return array{0:bool,1:bool}
+     */
+    private static function etatJourK40(PDO $db, int $employeId, string $date): array
+    {
+        $stmt = $db->prepare(
+            'SELECT type FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
+        );
+        $stmt->execute([$employeId, $date]);
+        $types = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        if ($types === []) {
+            return [false, false];
+        }
+        $aArrivee = in_array('entree', $types, true);
+        $aSortie = ($types[count($types) - 1] === 'sortie');
+
+        return [$aArrivee, $aSortie];
     }
 
     /**

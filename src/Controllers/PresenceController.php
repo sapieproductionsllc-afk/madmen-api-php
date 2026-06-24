@@ -37,7 +37,8 @@ final class PresenceController
 
         // On part de TOUS les employés non suspendus, puis on rattache leur session
         // « en cours » (statut ouverte/verrouillee). LEFT JOIN : un employé sans
-        // session reste présent dans le résultat (Absent ou Conge).
+        // session reste présent dans le résultat (Absent ou Conge). On joint aussi le
+        // pointage du jour pour exposer le statut journalier (avec AUTO-PARTI).
         $stmt = $db->prepare(
             "SELECT e.id AS employe_id,
                     e.matricule,
@@ -45,7 +46,9 @@ final class PresenceController
                     e.statut AS employe_statut,
                     s.statut AS session_statut,
                     s.heure_debut AS depuis,
-                    pt.nom AS poste
+                    pt.nom AS poste,
+                    po.statut AS pointage_statut,
+                    po.heure_entree AS arrivee
              FROM employe e
              LEFT JOIN session_travail s
                     ON s.id = (
@@ -56,11 +59,14 @@ final class PresenceController
                         LIMIT 1
                     )
              LEFT JOIN poste_travail pt ON pt.id = s.poste_travail_id
+             LEFT JOIN pointage po ON po.employe_id = e.id AND po.date = CURDATE()
              WHERE e.statut <> 'suspendu'
              ORDER BY e.matricule"
         );
         $stmt->execute();
 
+        $today = date('Y-m-d');
+        $planningCache = [];
         $out = [];
         foreach ($stmt->fetchAll() as $row) {
             [$live, $detail] = $this->etatLive(
@@ -69,17 +75,60 @@ final class PresenceController
                 $row['poste'] !== null ? (string) $row['poste'] : null
             );
 
+            // Statut JOURNALIER (cohérent avec l'ENUM pointage.statut), AUTO-PARTI
+            // inclus : un agent 'present'/'retard' dont la fin du jour est dépassée
+            // est exposé 'parti'. Additif : 'live' (sessions) reste inchangé.
+            $statut = $this->statutJourAuto(
+                $db,
+                (int) $row['employe_id'],
+                (string) $row['employe_statut'],
+                $row['pointage_statut'] !== null ? (string) $row['pointage_statut'] : null,
+                $today,
+                $planningCache
+            );
+
             $out[] = [
                 'employe_id' => (int) $row['employe_id'],
                 'matricule'  => (string) $row['matricule'],
                 'name'       => (string) $row['name'],
                 'live'       => $live,
+                'statut'     => $statut,
                 'detail'     => $detail,
                 'depuis'     => $live === 'Absent' ? null : ($row['depuis'] ?? null),
             ];
         }
 
         Response::json($out);
+    }
+
+    /**
+     * Statut journalier d'un employé (ENUM pointage.statut), AUTO-PARTI appliqué à
+     * l'affichage : un statut 'present'/'retard' bascule 'parti' si l'heure de fin
+     * prévue du jour est dépassée. Sans pointage : 'conge' si l'employé est en congé,
+     * sinon null. $cache mémorise le planning par employé (passé par référence).
+     *
+     * @param array<int,array> $cache
+     */
+    private function statutJourAuto(
+        \PDO $db,
+        int $employeId,
+        string $employeStatut,
+        ?string $pointageStatut,
+        string $today,
+        array &$cache
+    ): ?string {
+        if ($pointageStatut === null) {
+            return $employeStatut === 'conge' ? 'conge' : null;
+        }
+        if ($pointageStatut === 'present' || $pointageStatut === 'retard') {
+            $cache[$employeId] ??= Presence::planning($db, $employeId);
+            $fenetre = Presence::fenetreJour($cache[$employeId], $today);
+            if (Presence::estAutoParti($pointageStatut, $fenetre)) {
+                return 'parti';
+            }
+        }
+
+        return $pointageStatut;
     }
 
     /**
@@ -143,13 +192,18 @@ final class PresenceController
             $estTravaille = isset($planning['jours'][$jourIso]);
             $pointage = $pointages[$date] ?? null;
 
+            // AUTO-PARTI : seulement pour le JOUR COURANT (les jours passés gardent
+            // leur statut historique). Fenêtre du jour pour comparer à l'heure de fin.
+            $fenetre = $date === $aujourdhui ? Presence::fenetreJour($planning, $date) : null;
+
             [$etat, $libelle] = $this->etatJour(
                 $date,
                 $aujourdhui,
                 $pointage,
                 isset($feries[$date]) ? (string) $feries[$date] : null,
                 $estTravaille,
-                (string) $employe['statut']
+                (string) $employe['statut'],
+                $fenetre
             );
 
             $jours[] = [
@@ -214,7 +268,8 @@ final class PresenceController
         ?array $pointage,
         ?string $ferieLibelle,
         bool $estTravaille,
-        string $employeStatut
+        string $employeStatut,
+        ?array $fenetre = null
     ): array {
         if ($ferieLibelle !== null) {
             return ['ferie', $ferieLibelle];
@@ -227,6 +282,12 @@ final class PresenceController
 
         if ($pointage !== null) {
             $statut = (string) $pointage['statut'];
+            // AUTO-PARTI (jour courant) : present/retard bascule 'parti' si la fin du
+            // jour est dépassée. $fenetre n'est fourni que pour le jour courant.
+            if ($statut === 'parti'
+                || ($fenetre !== null && Presence::estAutoParti($statut, $fenetre))) {
+                return ['parti', 'Parti'];
+            }
             if ($statut === 'present') {
                 return ['present', 'Présent'];
             }

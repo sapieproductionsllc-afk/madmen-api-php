@@ -219,6 +219,7 @@ $router->get('/api/pointages', [PointageController::class, 'index']);
 $router->post('/api/pointages', [PointageController::class, 'store']);
 $router->get('/api/pointages/{id}/passages', [PointageController::class, 'passages']);
 $router->post('/api/employes/{id}/pointage-manuel', [PointageController::class, 'manuel']);
+$router->put('/api/employes/{id}/pointage-jour', [PointageController::class, 'setJour']);
 
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
@@ -239,6 +240,7 @@ $router->get('/api/me/pointages', [MeController::class, 'pointages']);
 $router->get('/api/me/horaire', [MeController::class, 'horaire']);
 $router->get('/api/me/paie', [MeController::class, 'paie']);
 $router->get('/api/me/collegues', [MeController::class, 'collegues']);
+$router->post('/api/me/regenerer-pin', [MeController::class, 'regenererPin']);
 // Demandes (self-service)
 $router->get('/api/me/demandes', [DemandeController::class, 'mesDemandes']);
 $router->post('/api/me/demandes', [DemandeController::class, 'creer']);

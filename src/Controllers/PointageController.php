@@ -141,6 +141,57 @@ final class PointageController
         ], 201);
     }
 
+    /**
+     * PUT /api/employes/{id}/pointage-jour — fixe (override admin) l'heure d'arrivée
+     * et/ou de départ d'un jour depuis le calendrier. REMPLACE les passages du jour par
+     * ces heures puis recalcule le résumé (heure_entree/heure_sortie, retard, HS).
+     * body : { date:'YYYY-MM-DD', heure_entree:'HH:MM'|null, heure_sortie:'HH:MM'|null }.
+     */
+    public function setJour(array $params): void
+    {
+        $db = Database::connection();
+        $id = (int) $params['id'];
+        $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $check->execute([$id]);
+        if (!$check->fetchColumn()) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $body = Request::body();
+        $date = (string) ($body['date'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
+            Response::error("'date' requise (YYYY-MM-DD)", 422);
+        }
+        $norm = static function ($h) {
+            if ($h === null || $h === '') {
+                return null;
+            }
+            return preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) $h) === 1 ? (string) $h : false;
+        };
+        $entree = $norm($body['heure_entree'] ?? null);
+        $sortie = $norm($body['heure_sortie'] ?? null);
+        if ($entree === false || $sortie === false) {
+            Response::error('Heures au format HH:MM', 422);
+        }
+
+        // Override admin : on remplace les passages du jour par les heures fournies.
+        $db->prepare('DELETE FROM pointage_passage WHERE employe_id = ? AND date = ?')->execute([$id, $date]);
+        if ($entree !== null) {
+            K40Pointage::recordManuel($db, $id, "$date $entree:00", 'entree');
+        }
+        if ($sortie !== null) {
+            K40Pointage::recordManuel($db, $id, "$date $sortie:00", 'sortie');
+        }
+        // Aucune heure -> jour vidé : on retire aussi la ligne de résumé.
+        if ($entree === null && $sortie === null) {
+            $db->prepare('DELETE FROM pointage WHERE employe_id = ? AND date = ?')->execute([$id, $date]);
+        }
+
+        $stmt = $db->prepare('SELECT * FROM pointage WHERE employe_id = ? AND date = ? ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$id, $date]);
+        Response::json(['message' => 'Jour mis à jour', 'pointage' => $stmt->fetch() ?: null], 200);
+    }
+
     /** Valide un horodatage 'YYYY-MM-DD HH:MM[:SS]' -> 'YYYY-MM-DD HH:MM:SS' ; null si invalide. */
     private function horodatageValide($v): ?string
     {

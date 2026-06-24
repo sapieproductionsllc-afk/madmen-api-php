@@ -23,7 +23,7 @@ final class HoraireController
 
         $stmt = Database::connection()->prepare(
             'SELECT heure_arrivee, heure_depart, pause_debut, pause_fin,
-                    tolerance_minutes, jours_travailles, planning
+                    tolerance_minutes, avance_minutes, jours_travailles, planning
              FROM horaire_employe WHERE employe_id = ?'
         );
         $stmt->execute([$id]);
@@ -40,6 +40,7 @@ final class HoraireController
                 'pause_debut'       => $row['pause_debut'] !== null ? substr((string) $row['pause_debut'], 0, 5) : null,
                 'pause_fin'         => $row['pause_fin'] !== null ? substr((string) $row['pause_fin'], 0, 5) : null,
                 'tolerance_minutes' => (int) $row['tolerance_minutes'],
+                'avance_minutes'    => (int) $row['avance_minutes'],
                 'jours_travailles'  => (string) $row['jours_travailles'],
             ]);
         }
@@ -54,6 +55,7 @@ final class HoraireController
             'pause_debut'       => $d['dejeuner_debut'],
             'pause_fin'         => $d['dejeuner_fin'],
             'tolerance_minutes' => $d['tolerance'],
+            'avance_minutes'    => $d['avance'],
             'jours_travailles'  => $d['jours'],
         ]);
     }
@@ -71,6 +73,10 @@ final class HoraireController
             if ($tol < 0 || $tol > 240) {
                 Response::error("'tolerance_minutes' doit être entre 0 et 240", 422);
             }
+            $avance = $this->normAvance($body['avance_minutes'] ?? null);
+            if ($avance === null) {
+                Response::error("'avance_minutes' doit être un entier entre 0 et 240", 422);
+            }
             $planning = $this->normPlanning($body['planning']);
             if ($planning === null) {
                 Response::error("'planning' invalide (clés 1-7 ; chaque jour : debut/fin HH:MM avec fin > debut)", 422);
@@ -84,14 +90,14 @@ final class HoraireController
 
             Database::connection()->prepare(
                 "INSERT INTO horaire_employe
-                    (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, jours_travailles, planning)
-                 VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)
+                    (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, avance_minutes, jours_travailles, planning)
+                 VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?)
                  ON DUPLICATE KEY UPDATE
                     heure_arrivee = VALUES(heure_arrivee), heure_depart = VALUES(heure_depart),
                     pause_debut = NULL, pause_fin = NULL,
-                    tolerance_minutes = VALUES(tolerance_minutes),
+                    tolerance_minutes = VALUES(tolerance_minutes), avance_minutes = VALUES(avance_minutes),
                     jours_travailles = VALUES(jours_travailles), planning = VALUES(planning)"
-            )->execute([$id, $arr, $dep, $tol, $jours, json_encode($planning)]);
+            )->execute([$id, $arr, $dep, $tol, $avance, $jours, json_encode($planning)]);
 
             $this->show($params);
             return; // ne pas tomber dans le mode legacy ci-dessous
@@ -124,6 +130,11 @@ final class HoraireController
             Response::error("'tolerance_minutes' doit être entre 0 et 240", 422);
         }
 
+        $avance = $this->normAvance($body['avance_minutes'] ?? null);
+        if ($avance === null) {
+            Response::error("'avance_minutes' doit être un entier entre 0 et 240", 422);
+        }
+
         $jours = $this->normJours($body['jours_travailles'] ?? '1,2,3,4,5');
         if ($jours === null) {
             Response::error("'jours_travailles' invalide (ex. '1,2,3,4,5' ; 1=lundi … 7=dimanche)", 422);
@@ -131,14 +142,15 @@ final class HoraireController
 
         Database::connection()->prepare(
             "INSERT INTO horaire_employe
-                (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, jours_travailles)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+                (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, avance_minutes, jours_travailles)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 heure_arrivee = VALUES(heure_arrivee), heure_depart = VALUES(heure_depart),
                 pause_debut = VALUES(pause_debut), pause_fin = VALUES(pause_fin),
-                tolerance_minutes = VALUES(tolerance_minutes), jours_travailles = VALUES(jours_travailles),
+                tolerance_minutes = VALUES(tolerance_minutes), avance_minutes = VALUES(avance_minutes),
+                jours_travailles = VALUES(jours_travailles),
                 planning = NULL"
-        )->execute([$id, $arr, $dep, $pdeb, $pfin, $tol, $jours]);
+        )->execute([$id, $arr, $dep, $pdeb, $pfin, $tol, $avance, $jours]);
 
         $this->show($params);
     }
@@ -151,6 +163,23 @@ final class HoraireController
         }
 
         return trim($v) . ':00';
+    }
+
+    /**
+     * Normalise avance_minutes : entier dans [0,240]. Champ OMIS => défaut (30) pour
+     * rester rétro-compatible (clients qui n'envoient pas le champ). null si invalide.
+     */
+    private function normAvance($v): ?int
+    {
+        if ($v === null) {
+            return Presence::AVANCE_DEFAUT;
+        }
+        if (is_bool($v) || !is_numeric($v) || (string) (int) $v !== (string) $v) {
+            return null;
+        }
+        $n = (int) $v;
+
+        return ($n < 0 || $n > 240) ? null : $n;
     }
 
     /** Normalise une liste de jours ISO (1-7) -> '1,2,3' trié ; null si invalide. */
