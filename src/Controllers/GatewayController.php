@@ -45,23 +45,27 @@ final class GatewayController
             }
             // Hash du PIN poussé par le bureau (si fourni). Absent -> on ne touche pas au PIN cloud.
             $hash = trim((string) ($e['code_pin_hash'] ?? ''));
+            // device_user_id = mapping K40 (source de vérité = bureau). Poussé pour que le
+            // cloud puisse MAPPER les punchs relayés par les reporters (sinon resolveEmploye
+            // échoue -> 'inconnu' -> employé absent malgré son pointage).
+            $duid = isset($e['device_user_id']) && (string) $e['device_user_id'] !== '' ? (string) $e['device_user_id'] : null;
             $st = $db->prepare('SELECT id FROM employe WHERE matricule = ?');
             $st->execute([$mat]);
             $id = $st->fetchColumn();
             if ($id) {
                 if ($hash !== '') {
-                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ?, code_pin_hash = ? WHERE id = ?')
-                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', $hash, (int) $id]);
+                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ?, device_user_id = ?, code_pin_hash = ? WHERE id = ?')
+                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', $duid, $hash, (int) $id]);
                 } else {
-                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ? WHERE id = ?')
-                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', (int) $id]);
+                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ?, device_user_id = ? WHERE id = ?')
+                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', $duid, (int) $id]);
                 }
             } else {
                 // Nouveau : hash du bureau si fourni, sinon PIN provisoire aléatoire ; role 'employe'.
                 $pin = $hash !== '' ? $hash : password_hash(bin2hex(random_bytes(4)), PASSWORD_BCRYPT);
-                $db->prepare("INSERT INTO employe (matricule, nom, prenom, email, code_pin_hash, statut, role)
-                              VALUES (?, ?, ?, ?, ?, ?, 'employe')")
-                   ->execute([$mat, $e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $pin, $e['statut'] ?? 'actif']);
+                $db->prepare("INSERT INTO employe (matricule, nom, prenom, email, device_user_id, code_pin_hash, statut, role)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, 'employe')")
+                   ->execute([$mat, $e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $duid, $pin, $e['statut'] ?? 'actif']);
             }
             $empApp++;
         }

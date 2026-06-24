@@ -141,10 +141,11 @@ final class K40Pointage
             if ($fenetre === null) {
                 return 'ignore';
             }
-            // b) Trop TÔT : avant (debut - avance_minutes) -> on ignore.
-            if (Presence::estTropTot($ts, $fenetre)) {
-                return 'ignore';
-            }
+            // b) Arrivée EN AVANCE (avant debut - avance) : on NE l'ignore PLUS. La
+            //    personne EST présente -> on enregistre son punch avec son heure réelle.
+            //    Le retard reste calculé par Presence (une avance = aucun retard).
+            //    Avant : 'ignore' -> l'employé apparaissait ABSENT malgré son pointage K40
+            //    (ex. Yohann pointé 07:52 pour une prise à 08:30 -> perdu).
             // c) À/APRÈS l'heure de DÉPART prévue : la personne est censée être partie.
             if (Presence::estApresFin($ts, $fenetre)) {
                 [$aArrivee, $aSortie] = self::etatJourK40($db, $employeId, $date);

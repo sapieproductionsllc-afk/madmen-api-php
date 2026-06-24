@@ -33,7 +33,7 @@ final class RelaisCloud
         // code_pin_hash inclus : le cloud l'applique pour que le MÊME code marche en
         // ligne (le hash bcrypt voyage, jamais le PIN en clair).
         $employes = $db->query(
-            "SELECT matricule, nom, prenom, email, statut, code_pin_hash FROM employe WHERE statut <> 'suspendu'"
+            "SELECT matricule, nom, prenom, email, statut, device_user_id, code_pin_hash FROM employe WHERE statut <> 'suspendu'"
         )->fetchAll(PDO::FETCH_ASSOC);
 
         // Pointages modifiés depuis le curseur.
