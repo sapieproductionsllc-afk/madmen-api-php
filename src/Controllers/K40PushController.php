@@ -115,6 +115,7 @@ final class K40PushController
         $db = Database::connection();
 
         $n = 0;
+        $rejetes = 0;
         foreach (preg_split('/\r\n|\n|\r/', trim($raw)) as $line) {
             if ($line === '') {
                 continue;
@@ -125,12 +126,44 @@ final class K40PushController
             if ($userId === '' || $timestamp === '') {
                 continue;
             }
+            // GARDE anti-malformé : /iclock est PUBLIC et reçoit parfois du binaire (scan/bot,
+            // handshake ZKTeco mal formé...). On REJETTE les lignes dont l'identifiant contient
+            // des caractères non imprimables (ou est anormalement long) OU dont l'horodatage
+            // n'est pas une date plausible — au lieu de polluer k40_punch_brut avec des entrées
+            // 'inconnu' parasites (ex. id "\x01y2", horodatage par défaut 2000-01-01).
+            if (
+                strlen($userId) > 64
+                || preg_match('/[^\x20-\x7E]/', $userId) === 1
+                || !self::horodatageValide($timestamp)
+            ) {
+                $rejetes++;
+                continue;
+            }
             K40Pointage::record($db, $userId, $timestamp, $cfg['heure_limite']);
             $n++;
+        }
+        if ($rejetes > 0) {
+            error_log('iclock: ' . $rejetes . ' ligne(s) ATTLOG malformée(s) rejetée(s) (SN='
+                . ($_GET['SN'] ?? '?') . ')');
         }
 
         // ZKTeco attend « OK: <nombre de lignes traitées> ».
         Response::text("OK: {$n}\n");
+    }
+
+    /**
+     * L'horodatage ATTLOG est-il une vraie date « Y-m-d H:i:s » plausible ?
+     * Rejette le binaire, les formats inattendus et la date par défaut 2000-01-01
+     * (ce que produit un parse raté), en bornant l'année à une plage raisonnable.
+     */
+    private static function horodatageValide(string $ts): bool
+    {
+        $d = \DateTime::createFromFormat('Y-m-d H:i:s', $ts);
+        if (!$d || $d->format('Y-m-d H:i:s') !== $ts) {
+            return false;
+        }
+        $annee = (int) $d->format('Y');
+        return $annee >= 2020 && $annee <= 2100;
     }
 
     /** GET /iclock/getrequest — le terminal demande s'il y a des commandes. */
