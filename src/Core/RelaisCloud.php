@@ -30,8 +30,10 @@ final class RelaisCloud
         $depuis = $db->query('SELECT last_push_at FROM relais_state WHERE id = 1')->fetchColumn() ?: '2000-01-01 00:00:00';
 
         // Employés (upsert idempotent côté cloud par matricule).
+        // code_pin_hash inclus : le cloud l'applique pour que le MÊME code marche en
+        // ligne (le hash bcrypt voyage, jamais le PIN en clair).
         $employes = $db->query(
-            "SELECT matricule, nom, prenom, email, statut FROM employe WHERE statut <> 'suspendu'"
+            "SELECT matricule, nom, prenom, email, statut, code_pin_hash FROM employe WHERE statut <> 'suspendu'"
         )->fetchAll(PDO::FETCH_ASSOC);
 
         // Pointages modifiés depuis le curseur.

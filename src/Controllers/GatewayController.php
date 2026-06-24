@@ -32,22 +32,31 @@ final class GatewayController
 
         $db = Database::connection();
 
-        // 1) Upsert employés par matricule (ne touche JAMAIS code_pin_hash / role).
+        // 1) Upsert employés par matricule. Le hash du PIN du bureau (source de vérité)
+        //    est synchronisé -> même code en local ET en ligne. Le role cloud n'est
+        //    jamais écrasé (un employé reste 'employe' à la création, modifiable côté cloud).
         $empApp = 0;
         foreach ($employes as $e) {
             $mat = trim((string) ($e['matricule'] ?? ''));
             if ($mat === '') {
                 continue;
             }
+            // Hash du PIN poussé par le bureau (si fourni). Absent -> on ne touche pas au PIN cloud.
+            $hash = trim((string) ($e['code_pin_hash'] ?? ''));
             $st = $db->prepare('SELECT id FROM employe WHERE matricule = ?');
             $st->execute([$mat]);
             $id = $st->fetchColumn();
             if ($id) {
-                $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ? WHERE id = ?')
-                   ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', (int) $id]);
+                if ($hash !== '') {
+                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ?, code_pin_hash = ? WHERE id = ?')
+                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', $hash, (int) $id]);
+                } else {
+                    $db->prepare('UPDATE employe SET nom = ?, prenom = ?, email = ?, statut = ? WHERE id = ?')
+                       ->execute([$e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $e['statut'] ?? 'actif', (int) $id]);
+                }
             } else {
-                // PIN provisoire aléatoire (le vrai PIN ne quitte jamais le bureau) ; role 'employe'.
-                $pin = password_hash(bin2hex(random_bytes(4)), PASSWORD_BCRYPT);
+                // Nouveau : hash du bureau si fourni, sinon PIN provisoire aléatoire ; role 'employe'.
+                $pin = $hash !== '' ? $hash : password_hash(bin2hex(random_bytes(4)), PASSWORD_BCRYPT);
                 $db->prepare("INSERT INTO employe (matricule, nom, prenom, email, code_pin_hash, statut, role)
                               VALUES (?, ?, ?, ?, ?, ?, 'employe')")
                    ->execute([$mat, $e['nom'] ?? '', $e['prenom'] ?? '', $e['email'] ?? null, $pin, $e['statut'] ?? 'actif']);
