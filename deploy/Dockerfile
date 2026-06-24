@@ -8,6 +8,13 @@ FROM php:8.4-cli-alpine
 RUN apk add --no-cache linux-headers \
  && docker-php-ext-install pdo_mysql sockets
 
+# Taille de requête : le K40 peut pousser un gros lot ATTLOG après une longue coupure.
+# On met post_max_size BIEN au-dessus du cap applicatif (8 Mo) pour que ce soit le
+# HANDLER qui tranche, et jamais un rejet PHP silencieux (php://input vide -> "OK: 0"
+# = le terminal croirait avoir transmis et purgerait son Stamp).
+RUN { echo 'post_max_size=16M'; echo 'upload_max_filesize=16M'; echo 'memory_limit=256M'; } \
+    > /usr/local/etc/php/conf.d/zz-madmen.ini
+
 # Composer depuis l'image officielle.
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 

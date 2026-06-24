@@ -27,6 +27,13 @@ final class K40Pointage
      */
     public static function record(PDO $db, string $deviceUserId, string $timestamp, string $heureLimite): string
     {
+        // Garde-fou observabilité : un horodatage non parseable = ligne corrompue du
+        // terminal (jamais un vrai punch, toujours bien daté). On la trace pour
+        // investigation au lieu de la laisser disparaître silencieusement.
+        if (strtotime($timestamp) === false) {
+            error_log("K40: horodatage non parseable (dev={$deviceUserId}, ts={$timestamp})");
+        }
+
         // 0) JOURNAL BRUT — on persiste TOUT punch AVANT toute résolution/filtrage.
         //    Garantie anti-perte : même non mappé, filtré par l'horaire, ou daté dans
         //    le futur, le punch reste durablement enregistré et rejouable.

@@ -41,7 +41,7 @@ final class RelaisCloud
             "SELECT e.matricule, p.date, p.heure_entree, p.heure_sortie, p.retard_minutes,
                     p.temps_present_minutes, p.temps_pause_minutes, p.nb_pauses, p.statut, p.updated_at
              FROM pointage p JOIN employe e ON e.id = p.employe_id
-             WHERE p.updated_at > ? ORDER BY p.updated_at"
+             WHERE p.updated_at > ? AND e.statut <> 'suspendu' ORDER BY p.updated_at"
         );
         $st->execute([$depuis]);
         $pointages = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -86,16 +86,21 @@ final class RelaisCloud
         // 200 avec pointages_recus=0 -> sans cette vérif, le curseur avancerait et ces
         // pointages n'atteindraient JAMAIS le cloud. Si le lot n'est pas confirmé complet,
         // le curseur reste en place -> re-poussé au prochain passage.
-        $rep        = is_string($resp) ? json_decode($resp, true) : null;
-        $recusCloud = is_array($rep) && isset($rep['pointages_recus']) ? (int) $rep['pointages_recus'] : null;
-        $lotComplet = $code === 200 && $recusCloud !== null && $recusCloud === count($pointagesEnvoi);
+        // On exige que le cloud ait APPLIQUÉ (pas seulement reçu) EXACTEMENT le nombre de
+        // pointages envoyés. Tous les pointages envoyés référencent un employé NON suspendu
+        // -> poussé dans le MÊME lot -> présent côté cloud -> aucun n'est sauté, donc
+        // appliqués == envoyés. Si le cloud en applique moins (corps tronqué, skip), on
+        // n'avance PAS le curseur -> re-poussé au prochain passage. Aucune perte côté cloud.
+        $rep       = is_string($resp) ? json_decode($resp, true) : null;
+        $appliques = is_array($rep) && isset($rep['pointages_appliques']) ? (int) $rep['pointages_appliques'] : null;
+        $lotComplet = $code === 200 && $appliques !== null && $appliques === count($pointagesEnvoi);
 
         if (!$lotComplet) {
             // Curseur NON avancé -> ces données seront re-poussées au prochain passage.
             return [
                 'ok' => false, 'employes' => count($employes), 'pointages' => count($pointages),
                 'erreur' => $err !== '' ? $err
-                    : ('HTTP ' . $code . ' — lot incomplet (cloud a reçu ' . var_export($recusCloud, true)
+                    : ('HTTP ' . $code . ' — lot incomplet (cloud a appliqué ' . var_export($appliques, true)
                        . ' / ' . count($pointagesEnvoi) . ' envoyés)'),
             ];
         }
