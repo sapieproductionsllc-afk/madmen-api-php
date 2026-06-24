@@ -308,6 +308,7 @@ final class K40Controller
         // réels suivants ($ts < curseur) seraient sautés à jamais. Le punch futur reste
         // dans le journal brut (K40Pointage::record) -> aucune perte.
         $now = date('Y-m-d H:i:s');
+        $horlogeFuture = false; // vrai si un punch est daté > now -> horloge K40 déréglée
         // Dès qu'un punch NON MAPPÉ est rencontré, on n'avance plus le curseur
         // au-delà : il sera relu à la prochaine synchro puis enregistré une fois
         // l'employé mappé (plus de perte définitive). La déduplication par
@@ -318,6 +319,9 @@ final class K40Controller
             $recus++;
             $ts = (string) ($log['timestamp'] ?? '');
             $devId = (string) ($log['id'] ?? '');
+            if ($ts !== '' && $ts > $now) {
+                $horlogeFuture = true; // alerte horloge (le punch reste au journal brut)
+            }
             // '<' (et non '<=') : un punch distinct à la même seconde que le curseur
             // n'est plus perdu ; un éventuel re-traitement est neutralisé par la dédup.
             if ($ts === '' || $ts < $lastSync) {
@@ -347,6 +351,16 @@ final class K40Controller
             }
         }
 
+        // ALERTES early-warning anti-perte (au plus une non lue par type et par jour).
+        if ($recus > 64000) { // ~80 % de la capacité du K40 (80 000)
+            self::alerteK40($db, 'k40_saturation',
+                "Buffer K40 à {$recus}/80000 — synchronisez/videz le terminal avant débordement (risque de perte).");
+        }
+        if ($horlogeFuture) {
+            self::alerteK40($db, 'k40_horloge',
+                "Pointage daté dans le futur — horloge du K40 déréglée à corriger (punchs conservés au journal brut).");
+        }
+
         // Met à jour l'état.
         $db->prepare(
             'INSERT INTO k40_state (id, last_sync_at) VALUES (1, ?)
@@ -360,6 +374,21 @@ final class K40Controller
             'employes_inconnus'  => array_keys($inconnus),
             'derniere_synchro'   => $maxTs,
         ];
+    }
+
+    /**
+     * Lève une alerte K40 (early-warning anti-perte), dédupliquée : au plus UNE alerte
+     * NON LUE par type et par jour, pour ne pas saturer la cloche de notifications.
+     */
+    private static function alerteK40(\PDO $db, string $type, string $message): void
+    {
+        $db->prepare(
+            "INSERT INTO alerte (type, message, horodatage, lu)
+             SELECT ?, ?, ?, 0 FROM DUAL
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM alerte WHERE type = ? AND lu = 0 AND DATE(horodatage) = CURDATE()
+             )"
+        )->execute([$type, $message, date('Y-m-d H:i:s'), $type]);
     }
 
 }

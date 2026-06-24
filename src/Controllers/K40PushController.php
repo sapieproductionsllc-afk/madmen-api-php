@@ -100,9 +100,14 @@ final class K40PushController
         }
 
         $raw = file_get_contents('php://input') ?: '';
-        // Borne anti-DoS : un lot ATTLOG légitime reste modeste. Au-delà, on refuse
-        // (évite l'insertion massive forgée).
-        if (strlen($raw) > 1048576) { // 1 Mo
+        // Borne anti-DoS LARGE : 8 Mo couvrent un buffer K40 plein (cap 80 000 lignes
+        // ~40 octets = ~3 Mo). Un lot légitime, même après une longue coupure, passe
+        // donc toujours sous la limite -> plus de 413 bloquant qui ferait re-boucler le
+        // terminal à l'infini et risquerait un débordement du buffer. (Backstop : le PULL
+        // relit le device — jamais purgé — et récupère tout de toute façon.)
+        if (strlen($raw) > 8388608) { // 8 Mo
+            error_log('iclock: lot ATTLOG > 8 Mo refusé (SN=' . ($_GET['SN'] ?? '?')
+                . ', octets=' . strlen($raw) . ') — déclencher une synchro PULL');
             Response::text("ERROR: corps trop volumineux\n", 413);
             return;
         }
