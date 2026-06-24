@@ -75,16 +75,28 @@ final class RelaisCloud
         if (is_file($cacert)) {
             curl_setopt($ch, CURLOPT_CAINFO, $cacert);
         }
-        curl_exec($ch);
+        $resp = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err  = curl_error($ch);
         curl_close($ch);
 
-        if ($code !== 200) {
+        // ANTI-PERTE : on n'avance le curseur QUE si le cloud confirme avoir reçu le lot
+        // COMPLET (pointages_recus == nombre envoyé). Un HTTP 200 ne suffit PAS : un corps
+        // tronqué/coupé en transit fait que le cloud décode 0 pointage et répond quand même
+        // 200 avec pointages_recus=0 -> sans cette vérif, le curseur avancerait et ces
+        // pointages n'atteindraient JAMAIS le cloud. Si le lot n'est pas confirmé complet,
+        // le curseur reste en place -> re-poussé au prochain passage.
+        $rep        = is_string($resp) ? json_decode($resp, true) : null;
+        $recusCloud = is_array($rep) && isset($rep['pointages_recus']) ? (int) $rep['pointages_recus'] : null;
+        $lotComplet = $code === 200 && $recusCloud !== null && $recusCloud === count($pointagesEnvoi);
+
+        if (!$lotComplet) {
             // Curseur NON avancé -> ces données seront re-poussées au prochain passage.
             return [
                 'ok' => false, 'employes' => count($employes), 'pointages' => count($pointages),
-                'erreur' => $err !== '' ? $err : ('HTTP ' . $code),
+                'erreur' => $err !== '' ? $err
+                    : ('HTTP ' . $code . ' — lot incomplet (cloud a reçu ' . var_export($recusCloud, true)
+                       . ' / ' . count($pointagesEnvoi) . ' envoyés)'),
             ];
         }
 

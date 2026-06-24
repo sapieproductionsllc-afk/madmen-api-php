@@ -31,6 +31,8 @@ final class GatewayController
         $pointages = is_array($body['pointages'] ?? null) ? $body['pointages'] : [];
 
         $db = Database::connection();
+        $db->beginTransaction(); // application ATOMIQUE : tout ou rien (sinon rollback + 500)
+        try {
 
         // 1) Upsert employés par matricule. Le hash du PIN du bureau (source de vérité)
         //    est synchronisé -> même code en local ET en ligne. Le role cloud n'est
@@ -104,6 +106,16 @@ final class GatewayController
                    ]);
             }
             $ptApp++;
+        }
+
+        $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            // Non-200 -> la passerelle locale NE marque PAS le lot transmis et le re-pousse.
+            Response::error('Echec application passerelle', 500);
+            return;
         }
 
         Response::json([
