@@ -68,14 +68,15 @@ final class K40Template
      */
     public static function attendance(): array
     {
-        return self::run('attendance', []);
+        // Sync = échec RAPIDE (3s) si le K40 est injoignable : ne bloque pas l'API mono-thread.
+        return self::run('attendance', [], 3);
     }
 
     /**
      * @param array<int,mixed> $users
      * @return array<string,mixed>
      */
-    private static function run(string $action, array $users): array
+    private static function run(string $action, array $users, int $timeoutSeconds = 15): array
     {
         $cfg = K40::config();
         if (empty($cfg['enabled'])) {
@@ -107,7 +108,7 @@ final class K40Template
             'ip'       => $ip,
             'port'     => (int) ($cfg['port'] ?? 4370),
             'password' => (int) ($cfg['password'] ?? 0),
-            'timeout'  => 15,
+            'timeout'  => $timeoutSeconds,
             'action'   => $action,
             'users'    => array_values($users),
         ], JSON_UNESCAPED_UNICODE);
