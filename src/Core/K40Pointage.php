@@ -165,6 +165,17 @@ final class K40Pointage
         // traitement pull/push) produit le MÊME uuid -> INSERT IGNORE le rejette via
         // l'index UNIQUE uq_pp_client_uuid -> aucun doublon, aucune inversion de parité.
         $clientUuid = self::clientUuid($employeId, $ts);
+
+        // ATOMICITÉ (anti-incohérence) : le passage ET le résumé du jour sont écrits dans
+        // UNE seule transaction -> un crash entre les deux ne peut PAS laisser un résumé
+        // périmé (tout ou rien ; le punch sera relu, le device n'étant jamais purgé).
+        // inTransaction() : on ne gère la transaction que si aucune n'est déjà ouverte
+        // (évite une transaction PDO imbriquée si l'appel vient d'un flux transactionnel).
+        $gereTx = !$db->inTransaction();
+        if ($gereTx) {
+            $db->beginTransaction();
+        }
+        try {
         $ins = $db->prepare(
             'INSERT IGNORE INTO pointage_passage
                 (employe_id, date, type, horodatage, appareil_id, source, client_uuid)
@@ -172,8 +183,11 @@ final class K40Pointage
         );
         $ins->execute([$employeId, $date, $type, $ts, $appareilId, $source, $clientUuid]);
         if ($ins->rowCount() === 0) {
-            // Doublon : ce punch est déjà enregistré. Le résumé du jour est déjà
-            // correct -> rien à recalculer (opération sûre à rejouer indéfiniment).
+            // Doublon : passage déjà enregistré AVEC son résumé (écrits atomiquement
+            // ensemble) -> rien à recalculer. Opération sûre à rejouer indéfiniment.
+            if ($gereTx) {
+                $db->commit();
+            }
             return 'traite';
         }
 
@@ -227,6 +241,18 @@ final class K40Pointage
         // (le PC ne se verrouille que par inactivité ou déconnexion).
         if ($type === 'sortie') {
             self::enregistrerHeuresSup($db, $employeId, $date, $resume['sortie'], $horaire);
+        }
+
+            if ($gereTx) {
+                $db->commit();
+            }
+        } catch (\Throwable $e) {
+            // Échec d'écriture : on annule TOUT (passage + résumé). Le device n'étant
+            // jamais purgé, le punch sera relu et re-traité à la prochaine synchro.
+            if ($gereTx && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
         }
 
         return 'traite';
