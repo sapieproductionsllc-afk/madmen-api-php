@@ -298,6 +298,11 @@ final class K40Controller
         $ignores = 0;
         $inconnus = [];
         $maxTs = $lastSync;
+        // Borne HAUTE du curseur = heure courante. Un punch daté dans le FUTUR (horloge
+        // K40 déréglée) ne doit JAMAIS faire avancer le curseur, sinon tous les punchs
+        // réels suivants ($ts < curseur) seraient sautés à jamais. Le punch futur reste
+        // dans le journal brut (K40Pointage::record) -> aucune perte.
+        $now = date('Y-m-d H:i:s');
         // Dès qu'un punch NON MAPPÉ est rencontré, on n'avance plus le curseur
         // au-delà : il sera relu à la prochaine synchro puis enregistré une fois
         // l'employé mappé (plus de perte définitive). La déduplication par
@@ -331,7 +336,7 @@ final class K40Controller
                 } else {
                     $ignores++;
                 }
-                if (!$bloque && $ts > $maxTs) {
+                if (!$bloque && $ts > $maxTs && $ts <= $now) {
                     $maxTs = $ts;
                 }
             }

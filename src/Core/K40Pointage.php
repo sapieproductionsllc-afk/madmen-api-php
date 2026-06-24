@@ -27,13 +27,32 @@ final class K40Pointage
      */
     public static function record(PDO $db, string $deviceUserId, string $timestamp, string $heureLimite): string
     {
+        // 0) JOURNAL BRUT — on persiste TOUT punch AVANT toute résolution/filtrage.
+        //    Garantie anti-perte : même non mappé, filtré par l'horaire, ou daté dans
+        //    le futur, le punch reste durablement enregistré et rejouable.
+        $brutUuid = self::brutUuid($deviceUserId, $timestamp);
+        self::insererBrut($db, $deviceUserId, $timestamp, $brutUuid);
+
+        // 1) Punch daté dans le FUTUR (horloge K40 déréglée) : conservé au brut, mais
+        //    NON injecté dans les données dérivées. Avec le clamp du curseur (runSync),
+        //    il ne peut pas empoisonner la synchro et faire sauter les punchs réels.
+        if ((int) strtotime($timestamp) > time() + 300) {
+            self::majBrut($db, $brutUuid, null, 'futur');
+            return 'ignore';
+        }
+
+        // 2) Résolution stricte de l'employé.
         $employeId = self::resolveEmploye($db, $deviceUserId);
         if ($employeId === null) {
+            self::majBrut($db, $brutUuid, null, 'inconnu');
             return 'inconnu';
         }
 
-        // Filtrage des règles d'horaire UNIQUEMENT pour la source K40.
-        return self::enregistrer($db, $employeId, self::appareilId($db), $timestamp, $heureLimite);
+        // 3) Filtrage des règles d'horaire + enregistrement du passage (source K40).
+        $decision = self::enregistrer($db, $employeId, self::appareilId($db), $timestamp, $heureLimite);
+        self::majBrut($db, $brutUuid, $employeId, $decision);
+
+        return $decision;
     }
 
     /**
@@ -312,5 +331,40 @@ final class K40Pointage
             substr($h, 16, 4),
             substr($h, 20, 12)
         );
+    }
+
+    /**
+     * UUID déterministe du JOURNAL BRUT, basé sur (device_user_id + horodatage) —
+     * INDÉPENDANT de la source. Le MÊME punch physique reçu par pull ET par push
+     * produit le même uuid -> une seule ligne brute (dédup correcte entre chemins).
+     */
+    private static function brutUuid(string $deviceUserId, string $ts): string
+    {
+        $t = strtotime($ts);
+        $norm = $t !== false ? date('Y-m-d H:i:s', $t) : $ts;
+        $h = md5('brut|' . $deviceUserId . '|' . $norm);
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($h, 0, 8), substr($h, 8, 4), substr($h, 12, 4), substr($h, 16, 4), substr($h, 20, 12)
+        );
+    }
+
+    /** Écrit le punch au journal brut (append-only, idempotent via uq_pb_client_uuid). */
+    private static function insererBrut(PDO $db, string $deviceUserId, string $ts, string $uuid): void
+    {
+        $t = strtotime($ts);
+        $norm = $t !== false ? date('Y-m-d H:i:s', $t) : $ts;
+        $db->prepare(
+            'INSERT IGNORE INTO k40_punch_brut (device_user_id, horodatage, source, client_uuid)
+             VALUES (?, ?, ?, ?)'
+        )->execute([$deviceUserId, $norm, 'k40', $uuid]);
+    }
+
+    /** Annote le punch brut (employé résolu + décision) — observabilité et reprise. */
+    private static function majBrut(PDO $db, string $uuid, ?int $employeId, string $decision): void
+    {
+        $db->prepare(
+            'UPDATE k40_punch_brut SET employe_id = ?, decision = ? WHERE client_uuid = ?'
+        )->execute([$employeId, $decision, $uuid]);
     }
 }
