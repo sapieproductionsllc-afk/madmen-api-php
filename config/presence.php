@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Lit le .env via Env::load.
  *
  * Présence comptée de 08:30 à 18:00 ; retard si arrivée après 08:30 ;
- * pause déjeuner 12:30–13:30 (1h, NON comptée, exclue du temps de présence) ;
+ * pause déjeuner 12:30–14:00 (1h30, NON comptée, exclue du temps de présence) ;
  * tout travail après 18:00 = heures supplémentaires.
  */
 
@@ -23,5 +23,5 @@ return [
     'fin'            => $env['PRESENCE_FIN'] ?? '18:00',
     // Pause déjeuner : exclue du temps de présence, ni absence ni retard.
     'dejeuner_debut' => $env['DEJEUNER_DEBUT'] ?? '12:30',
-    'dejeuner_fin'   => $env['DEJEUNER_FIN'] ?? '13:30',
+    'dejeuner_fin'   => $env['DEJEUNER_FIN'] ?? '14:00',
 ];
