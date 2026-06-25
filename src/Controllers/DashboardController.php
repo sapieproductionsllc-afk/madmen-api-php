@@ -49,25 +49,15 @@ final class DashboardController
         // prévue du jour est dépassée est affiché 'parti'. Calcul en PHP via le
         // planning de chaque employé. Mémo planning pour éviter les requêtes redondantes.
         // Présents = ENTRÉE pointée aujourd'hui ET ni 'parti' ni AUTO-parti.
+        // Présents = entrée pointée aujourd'hui ET statut non 'parti'.
+        // (AUTO-PARTI par planning retiré : Presence::estAutoParti renvoie toujours false —
+        //  on évitait ici une requête planning PAR employé à chaque appel dashboard.)
         $presents = 0;
-        $planningCache = [];
-        foreach ($agents as &$agent) {
-            $statut = (string) $agent['statut'];
-            $eid = (int) $agent['id'];
-            if (($statut === 'present' || $statut === 'retard') && $agent['arrivee'] !== null) {
-                $planningCache[$eid] ??= Presence::planning($db, $eid);
-                $fenetre = Presence::fenetreJour($planningCache[$eid], $today);
-                if (Presence::estAutoParti($statut, $fenetre)) {
-                    $agent['statut'] = 'parti';
-                    $statut = 'parti';
-                }
-            }
-            // Compte des présents : entrée pointée et pas (auto-)parti.
-            if ($agent['arrivee'] !== null && $statut !== 'parti') {
+        foreach ($agents as $agent) {
+            if ($agent['arrivee'] !== null && (string) $agent['statut'] !== 'parti') {
                 $presents++;
             }
         }
-        unset($agent);
 
         Response::json([
             'presents' => $presents,

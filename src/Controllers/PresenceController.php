@@ -120,14 +120,8 @@ final class PresenceController
         if ($pointageStatut === null) {
             return $employeStatut === 'conge' ? 'conge' : null;
         }
-        if ($pointageStatut === 'present' || $pointageStatut === 'retard') {
-            $cache[$employeId] ??= Presence::planning($db, $employeId);
-            $fenetre = Presence::fenetreJour($cache[$employeId], $today);
-            if (Presence::estAutoParti($pointageStatut, $fenetre)) {
-                return 'parti';
-            }
-        }
-
+        // AUTO-PARTI retiré (estAutoParti renvoie toujours false) : on évitait une requête
+        // planning PAR employé à chaque appel temps-réel. Le statut journalier brut suffit.
         return $pointageStatut;
     }
 
