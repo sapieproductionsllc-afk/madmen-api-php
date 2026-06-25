@@ -207,6 +207,7 @@ $router->delete('/api/jours-feries/{id}', [JourFerieController::class, 'destroy'
 $router->get('/api/config/biometrie', [ConfigController::class, 'biometrie']);
 $router->get('/api/config/postes', [ConfigController::class, 'postes']);
 $router->get('/api/postes', [PosteController::class, 'index']);
+$router->get('/api/departements', [DepartementController::class, 'index']);
 $router->post('/api/postes', [PosteController::class, 'store']);
 $router->get('/api/postes/{code}/roster', [PosteController::class, 'roster']);
 
