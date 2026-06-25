@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace MadMen\Controllers;
 
+use MadMen\Core\Crypto;
 use MadMen\Core\Database;
 use MadMen\Core\Env;
+use MadMen\Core\K40Template;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 use PDO;
@@ -124,5 +126,95 @@ final class RelayController
         }
         unset($r);
         Response::json(['total' => count($rows), 'online' => $online, 'reporters' => $rows]);
+    }
+
+    /**
+     * GET /api/relay/pending-fingerprints — gabarits d'empreinte EN ATTENTE de poussée K40.
+     * Le reporter de garde (sur le LAN du K40) les tire, les écrit sur le device, puis
+     * appelle /api/relay/fingerprints-synced. Sens DESCENDANT cloud -> K40 (le cloud ne
+     * peut PAS joindre le K40 ; c'est le PC du bureau qui fait le pont). Auth GATEWAY_TOKEN.
+     */
+    public function pendingFingerprints(): void
+    {
+        $this->authReporter();
+
+        $db   = Database::connection();
+        $rows = $db->query(
+            "SELECT b.id, b.employe_id, b.doigt, b.template,
+                    e.nom, e.prenom, e.device_user_id
+             FROM employe_biometrie b
+             JOIN employe e ON e.id = b.employe_id
+             WHERE b.type = 'empreinte' AND b.actif = 1 AND b.k40_synced_at IS NULL
+               AND e.statut = 'actif'
+             ORDER BY b.employe_id, b.id
+             LIMIT 25"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $users  = [];
+        $bioIds = [];
+        foreach ($rows as $r) {
+            $blob = is_resource($r['template']) ? stream_get_contents($r['template']) : (string) $r['template'];
+            $raw  = Crypto::decrypt($blob);
+            if (strlen($raw) < 100) {
+                // Déchiffrement KO ou seed bidon : on le marque fait pour ne pas boucler dessus.
+                $db->prepare("UPDATE employe_biometrie SET k40_synced_at = NOW() WHERE id = ?")
+                   ->execute([(int) $r['id']]);
+                continue;
+            }
+            $eid = (int) $r['employe_id'];
+            if (!isset($users[$eid])) {
+                $users[$eid] = [
+                    'uid'     => $eid,
+                    'user_id' => (string) ($r['device_user_id'] ?: $eid),
+                    'name'    => mb_substr(trim($r['prenom'] . ' ' . $r['nom']), 0, 24),
+                    'fingers' => [],
+                ];
+            }
+            $users[$eid]['fingers'][] = [
+                'fid'          => K40Template::fid($r['doigt']),
+                'template_b64' => base64_encode($raw),
+            ];
+            $bioIds[] = (int) $r['id'];
+        }
+
+        Response::json(['users' => array_values($users), 'bio_ids' => $bioIds]);
+    }
+
+    /**
+     * POST /api/relay/fingerprints-synced — le reporter confirme que des gabarits ont été
+     * écrits sur le K40 ; on les horodate pour ne plus les re-pousser. Auth GATEWAY_TOKEN.
+     * Body : { "bio_ids": [12, 13, ...] }
+     */
+    public function fingerprintsSynced(): void
+    {
+        $this->authReporter();
+
+        $body = Request::body();
+        $ids  = array_values(array_filter(
+            array_map('intval', (array) ($body['bio_ids'] ?? [])),
+            static fn ($x) => $x > 0
+        ));
+        if ($ids === []) {
+            Response::json(['marked' => 0]);
+        }
+
+        $place = implode(',', array_fill(0, count($ids), '?'));
+        $st    = Database::connection()->prepare(
+            "UPDATE employe_biometrie SET k40_synced_at = NOW() WHERE id IN ($place)"
+        );
+        $st->execute($ids);
+
+        Response::json(['marked' => $st->rowCount()]);
+    }
+
+    /** Auth jeton relais (comparaison à temps constant), partagée par les endpoints reporter. */
+    private function authReporter(): void
+    {
+        $attendu = trim((string) Env::get('GATEWAY_TOKEN', ''));
+        $header  = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        $recu    = (stripos($header, 'Bearer ') === 0) ? substr($header, 7) : '';
+        if ($attendu === '' || !hash_equals($attendu, $recu)) {
+            Response::error('Jeton relais invalide', 401);
+        }
     }
 }

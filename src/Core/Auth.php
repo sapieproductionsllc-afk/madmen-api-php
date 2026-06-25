@@ -45,6 +45,8 @@ final class Auth
             || str_starts_with($uri, '/iclock/')
             || $uri === '/api/gateway/sync' // réception passerelle : auth par GATEWAY_TOKEN dans le contrôleur
             || $uri === '/api/relay/claim'  // tour de garde reporter : auth par GATEWAY_TOKEN dans le contrôleur
+            || $uri === '/api/relay/pending-fingerprints' // pont empreintes (cloud->K40) : auth GATEWAY_TOKEN dans le contrôleur
+            || $uri === '/api/relay/fingerprints-synced'  // pont empreintes (cloud->K40) : auth GATEWAY_TOKEN dans le contrôleur
         ) {
             return;
         }

@@ -390,6 +390,10 @@ $router->post('/api/gateway/sync', [GatewayController::class, 'sync']);
 $router->post('/api/relay/claim', [RelayController::class, 'claim']);
 $router->get('/api/relay/health', [RelayController::class, 'health']);
 $router->get('/api/relay/reporters', [RelayController::class, 'reporters']);
+// Pont empreintes (sens cloud -> K40) : le reporter de garde tire les gabarits en attente,
+// les écrit sur le K40, puis confirme. Auth GATEWAY_TOKEN (routes exemptées du JWT).
+$router->get('/api/relay/pending-fingerprints', [RelayController::class, 'pendingFingerprints']);
+$router->post('/api/relay/fingerprints-synced', [RelayController::class, 'fingerprintsSynced']);
 
 // --- Pointeuse K40 — mode PUSH / ADMS (le K40 envoie vers l'API, protocole iclock) ---
 // C1.3 : ces routes ne sont enregistrées qu'en mode 'push' ou 'both'. En mode

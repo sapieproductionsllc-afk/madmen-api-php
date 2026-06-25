@@ -61,6 +61,97 @@ def push(cfg, punches):
     return st, txt.strip()
 
 
+def pending_fingerprints(cfg):
+    """Tire la liste des gabarits d'empreinte EN ATTENTE de poussée K40 (sens cloud->K40)."""
+    req = urllib.request.Request(cfg["cloud"] + "/api/relay/pending-fingerprints",
+                                 method="GET",
+                                 headers={"Authorization": "Bearer " + cfg["token"]})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def report_synced(cfg, bio_ids):
+    """Confirme au cloud que ces gabarits sont posés sur le K40 (ne plus les re-pousser)."""
+    body = json.dumps({"bio_ids": bio_ids}).encode()
+    _post(cfg["cloud"] + "/api/relay/fingerprints-synced", body,
+          {"Authorization": "Bearer " + cfg["token"],
+           "Content-Type": "application/json"}, 15)
+
+
+def push_templates(cfg, users):
+    """Écrit des gabarits sur le K40 : crée l'utilisateur s'il manque, pousse le gabarit,
+    puis refresh_data (sinon stocké mais jamais matché). Désactive/réactive le device."""
+    import base64
+    from zk import ZK
+    from zk.finger import Finger
+    zk = ZK(cfg["ip"], port=cfg["port"], timeout=cfg["timeout"],
+            password=cfg["password"], force_udp=True, ommit_ping=True)
+    conn = zk.connect()
+    try:
+        try:
+            conn.disable_device()
+        except Exception:
+            pass
+        existing = {}
+        try:
+            for u in (conn.get_users() or []):
+                existing[str(u.user_id)] = u
+        except Exception:
+            pass
+        for entry in users:
+            uid = int(entry["uid"])
+            user_id = str(entry.get("user_id") or uid)
+            name = (entry.get("name") or user_id)[:24]
+            fingers = []
+            for f in entry.get("fingers", []):
+                tmpl = base64.b64decode(f.get("template_b64") or "")
+                if len(tmpl) >= 100:
+                    fingers.append(Finger(uid=uid, fid=int(f["fid"]), valid=1, template=tmpl))
+            if not fingers:
+                continue
+            target = existing.get(user_id)
+            if target is None:
+                conn.set_user(uid=uid, name=name, user_id=user_id)
+                target = uid
+            conn.save_user_template(target, fingers)
+        try:
+            conn.refresh_data()   # OBLIGATOIRE : sinon le gabarit est stocké mais non matché
+        except Exception:
+            pass
+    finally:
+        try:
+            conn.enable_device()
+        except Exception:
+            pass
+        try:
+            conn.disconnect()
+        except Exception:
+            pass
+
+
+def sync_fingerprints(cfg):
+    """Pont DESCENDANT cloud->K40 : tire les empreintes en attente, les écrit sur le K40,
+    puis confirme. Le cloud ne joint PAS le K40 ; ce PC de garde fait le pont (comme pour
+    les pointages, mais en sens inverse)."""
+    try:
+        pend = pending_fingerprints(cfg)
+    except Exception as e:
+        return {"fp": "pull", "ok": False, "error": str(e)}
+    users = pend.get("users") or []
+    bio_ids = pend.get("bio_ids") or []
+    if not users:
+        return {"fp": "idle", "count": 0}
+    try:
+        push_templates(cfg, users)
+    except Exception as e:
+        return {"fp": "push", "ok": False, "error": str(e), "count": len(bio_ids)}
+    try:
+        report_synced(cfg, bio_ids)
+    except Exception as e:
+        return {"fp": "report", "ok": False, "error": str(e), "count": len(bio_ids)}
+    return {"fp": "synced", "count": len(bio_ids)}
+
+
 def one_cycle(cfg):
     try:
         rep = claim(cfg)
@@ -68,17 +159,22 @@ def one_cycle(cfg):
         return {"step": "claim", "ok": False, "error": str(e)}
     if not rep.get("granted"):
         return {"step": "standby", "granted": False, "holder": rep.get("holder")}
+
+    out = {"step": "push", "granted": True}
+    # 1) Pointages K40 -> cloud (sens MONTANT, existant).
     try:
         punches = read_k40(cfg)
+        if punches:
+            st, resp = push(cfg, punches)
+            out.update({"count": len(punches), "http": st, "resp": resp})
+        else:
+            out["count"] = 0
     except Exception as e:
-        return {"step": "read", "granted": True, "ok": False, "error": str(e)}
-    if not punches:
-        return {"step": "push", "granted": True, "count": 0}
-    try:
-        st, resp = push(cfg, punches)
-    except Exception as e:
-        return {"step": "push", "granted": True, "ok": False, "error": str(e)}
-    return {"step": "push", "granted": True, "count": len(punches), "http": st, "resp": resp}
+        out.update({"ok": False, "error": str(e)})
+
+    # 2) Empreintes cloud -> K40 (sens DESCENDANT, pont bidirectionnel).
+    out["fingerprints"] = sync_fingerprints(cfg)
+    return out
 
 
 def _app_dir():
