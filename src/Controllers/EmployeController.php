@@ -77,11 +77,23 @@ final class EmployeController
 
     public function show(array $params): void
     {
-        $employe = $this->find((int) $params['id']);
+        $employe = $this->find($this->resoudreId($params['id']));
         if ($employe === null) {
             Response::error('Employé introuvable', 404);
         }
         Response::json($employe);
+    }
+
+    /** Résout un identifiant d'URL (id numérique OU matricule) en id numérique (0 si introuvable). */
+    private function resoudreId($idParam): int
+    {
+        $s = trim((string) $idParam);
+        if (ctype_digit($s)) {
+            return (int) $s;
+        }
+        $stmt = Database::connection()->prepare('SELECT id FROM employe WHERE matricule = ?');
+        $stmt->execute([$s]);
+        return (int) ($stmt->fetchColumn() ?: 0);
     }
 
     public function store(): void

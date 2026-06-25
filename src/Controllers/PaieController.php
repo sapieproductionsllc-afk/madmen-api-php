@@ -24,8 +24,11 @@ final class PaieController
         $db = Database::connection();
         $mois = $this->moisValide(Request::query('mois'));
 
-        $stmt = $db->prepare('SELECT id, matricule, nom, prenom, salaire FROM employe WHERE id = ?');
-        $stmt->execute([(int) $params['id']]);
+        // Accepte l'id numérique OU le matricule (le profil tire le bulletin par matricule).
+        $idParam = trim((string) $params['id']);
+        $colonne = ctype_digit($idParam) ? 'id' : 'matricule';
+        $stmt = $db->prepare("SELECT id, matricule, nom, prenom, salaire FROM employe WHERE $colonne = ?");
+        $stmt->execute([$idParam]);
         $employe = $stmt->fetch();
         if (!$employe) {
             Response::error('Employé introuvable', 404);
