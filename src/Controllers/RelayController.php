@@ -163,9 +163,21 @@ final class RelayController
             }
             $eid = (int) $r['employe_id'];
             if (!isset($users[$eid])) {
+                // Ferme la boucle de RETOUR : un employé créé côté cloud n'a pas de
+                // device_user_id -> son pointage reviendrait « inconnu » (resolveEmploye
+                // strict). On le mappe au slot K40 qu'on s'apprête à utiliser (= employe.id),
+                // comme le font déjà K40Controller et BiometrieController.
+                $duid = $r['device_user_id'];
+                if (!$duid) {
+                    $db->prepare(
+                        "UPDATE employe SET device_user_id = ?
+                         WHERE id = ? AND (device_user_id IS NULL OR device_user_id = '')"
+                    )->execute([(string) $eid, $eid]);
+                    $duid = (string) $eid;
+                }
                 $users[$eid] = [
                     'uid'     => $eid,
-                    'user_id' => (string) ($r['device_user_id'] ?: $eid),
+                    'user_id' => (string) $duid,
                     'name'    => mb_substr(trim($r['prenom'] . ' ' . $r['nom']), 0, 24),
                     'fingers' => [],
                 ];
