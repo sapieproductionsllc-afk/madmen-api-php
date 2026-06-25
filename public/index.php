@@ -212,6 +212,7 @@ $router->get('/api/postes/{code}/roster', [PosteController::class, 'roster']);
 
 // --- API : Enrôlement biométrique ---
 $router->get('/api/employes/{id}/biometrie', [BiometrieController::class, 'index']);
+$router->get('/api/employes/{id}/biometrie/export', [BiometrieController::class, 'export']);
 $router->post('/api/employes/{id}/biometrie', [BiometrieController::class, 'store']);
 $router->delete('/api/biometrie/{id}', [BiometrieController::class, 'destroy']);
 

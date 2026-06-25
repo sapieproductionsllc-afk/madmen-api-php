@@ -28,6 +28,56 @@ final class BiometrieController
     }
 
     /**
+     * Exporter les gabarits d'empreinte (déchiffrés, base64) d'un employé pour
+     * sauvegarde/téléchargement (côté admin, JWT). Inverse de l'import via store().
+     */
+    public function export(array $params): void
+    {
+        $employeId = (int) $params['id'];
+        $this->assertEmploye($employeId);
+
+        $db   = Database::connection();
+        $stmt = $db->prepare('SELECT nom, prenom, matricule FROM employe WHERE id = ?');
+        $stmt->execute([$employeId]);
+        $emp = $stmt->fetch() ?: [];
+
+        $stmt = $db->prepare(
+            'SELECT type, doigt, template, badge_rfid, created_at
+             FROM employe_biometrie WHERE employe_id = ? AND actif = 1 ORDER BY id'
+        );
+        $stmt->execute([$employeId]);
+
+        $biometries = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $item = [
+                'type'       => $r['type'],
+                'doigt'      => $r['doigt'],
+                'badge_rfid' => $r['badge_rfid'],
+                'created_at' => $r['created_at'],
+            ];
+            if ($r['type'] !== 'rfid' && $r['template'] !== null) {
+                $blob = is_resource($r['template']) ? stream_get_contents($r['template']) : (string) $r['template'];
+                $raw  = Crypto::decrypt($blob);
+                if (strlen($raw) < 100) {
+                    continue; // gabarit illisible -> omis
+                }
+                $item['template_b64'] = base64_encode($raw);
+            }
+            $biometries[] = $item;
+        }
+
+        Response::json([
+            'format'     => 'madmen-biometrie/v1',
+            'employe'    => [
+                'matricule' => $emp['matricule'] ?? null,
+                'nom'       => trim(($emp['prenom'] ?? '') . ' ' . ($emp['nom'] ?? '')),
+            ],
+            'count'      => count($biometries),
+            'biometries' => $biometries,
+        ]);
+    }
+
+    /**
      * Enrôler une donnée biométrique.
      * - empreinte / facial : body.template (base64 du gabarit) [+ doigt]
      * - rfid               : body.badge_rfid
