@@ -39,7 +39,12 @@ final class PointageController
             $sql .= ' AND date <= :to';
             $params['to'] = $to;
         }
-        $sql .= ' ORDER BY date DESC, id DESC';
+        // Garde-fou anti-dump : sans AUCUNE borne de date, on limite aux 30 derniers jours.
+        if ($date === null && $from === null && $to === null) {
+            $sql .= ' AND date >= :defaut';
+            $params['defaut'] = date('Y-m-d', strtotime('-30 days'));
+        }
+        $sql .= ' ORDER BY date DESC, id DESC LIMIT 5000';
 
         $stmt = Database::connection()->prepare($sql);
         $stmt->execute($params);

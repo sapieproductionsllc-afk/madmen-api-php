@@ -56,6 +56,19 @@ final class EmployeController
     public function index(): void
     {
         $db = Database::connection();
+
+        // Mode LÉGER (?light) : liste minimale (id, matricule, nom) pour les sélecteurs /
+        // lookups de noms — AUCUNE jointure ni pointage du jour. Bien plus rapide que la
+        // liste enrichie (utilisé par les pickers « supérieur », messagerie, objectifs…).
+        if (Request::query('light') !== null) {
+            $rows = $db->query(
+                "SELECT id, matricule, nom, prenom, CONCAT_WS(' ', prenom, nom) AS name
+                 FROM employe WHERE statut <> 'archive' ORDER BY nom, prenom"
+            )->fetchAll();
+            Response::json($rows);
+            return;
+        }
+
         $sql = 'SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . ' WHERE 1=1';
         $params = [];
 
@@ -66,6 +79,8 @@ final class EmployeController
         if (($statut = Request::query('statut')) !== null) {
             $sql .= ' AND e.statut = :statut';
             $params['statut'] = $statut;
+        } else {
+            $sql .= " AND e.statut <> 'archive'"; // archivés masqués des listes par défaut
         }
         $sql .= ' ORDER BY e.id DESC';
 
