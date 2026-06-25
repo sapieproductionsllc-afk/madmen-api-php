@@ -100,11 +100,15 @@ if (Env::get('APP_ENV') === 'production') {
 // (indispensable côté navigateur) ; sinon on renvoie la première de la liste.
 $corsConf = trim(Env::get('CORS_ORIGIN', '*'));
 $reqOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+// Origines de l'app DESKTOP MadMen (WebView2 Tauri : http(s)://tauri.localhost selon l'OS) :
+// TOUJOURS acceptées — c'est notre app signée, pas un navigateur tiers (CORS protège des
+// sites web ; l'auth JWT reste exigée). Évite de devoir les lister dans CORS_ORIGIN.
+$tauriOrigins = ['http://tauri.localhost', 'https://tauri.localhost', 'tauri://localhost'];
 if ($corsConf === '*') {
     header('Access-Control-Allow-Origin: *');
 } else {
     $autorisees = array_values(array_filter(array_map('trim', explode(',', $corsConf)), 'strlen'));
-    if ($reqOrigin !== '' && in_array($reqOrigin, $autorisees, true)) {
+    if ($reqOrigin !== '' && (in_array($reqOrigin, $autorisees, true) || in_array($reqOrigin, $tauriOrigins, true))) {
         header('Access-Control-Allow-Origin: ' . $reqOrigin);
     } else {
         header('Access-Control-Allow-Origin: ' . ($autorisees[0] ?? ''));
