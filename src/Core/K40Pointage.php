@@ -204,7 +204,13 @@ final class K40Pointage
             'SELECT type, horodatage FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
         );
         $stmt->execute([$employeId, $date]);
-        $resume = self::resumeJournee($stmt->fetchAll(), $horaire);
+        $passages = $stmt->fetchAll();
+        $resume = self::resumeJournee($passages, $horaire);
+
+        // Compteurs du jour (jour de repos -> 0). retard_dejeuner = retour de pause après
+        // l'heure fixe de fin ; temps_manquant = prévu net − travaillé (solde fin de journée).
+        $retardDej = $fenetre ? Presence::retardRetourDejeuner($passages, $horaire) : 0;
+        $tempsManq = $fenetre ? Presence::tempsManquant($resume['present'], $horaire) : 0;
 
         // 4) Upsert du résumé quotidien (table pointage).
         $stmt = $db->prepare('SELECT id FROM pointage WHERE employe_id = ? AND date = ? AND appareil_id = ?');
@@ -222,24 +228,27 @@ final class K40Pointage
             $db->prepare(
                 'INSERT INTO pointage
                     (employe_id, appareil_id, date, heure_entree, heure_sortie, methode,
-                     retard_minutes, temps_present_minutes, temps_pause_minutes, nb_pauses, statut)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                     retard_minutes, retard_dejeuner_minutes, temps_manquant_minutes,
+                     temps_present_minutes, temps_pause_minutes, nb_pauses, statut)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $employeId, $appareilId, $date, $resume['entree'], $resume['sortie'], 'empreinte',
-                $retard, $resume['present'], $resume['pause'], $resume['nb_pauses'], $statut,
+                $retard, $retardDej, $tempsManq,
+                $resume['present'], $resume['pause'], $resume['nb_pauses'], $statut,
             ]);
         } else {
             // Met à jour la sortie ET le statut : 'parti' si dernier passage = sortie,
             // sinon retour à 'present' (en conservant 'retard' si l'arrivée était tardive).
             $db->prepare(
-                "UPDATE pointage SET heure_sortie = ?, temps_present_minutes = ?,
+                "UPDATE pointage SET heure_sortie = ?, retard_dejeuner_minutes = ?,
+                    temps_manquant_minutes = ?, temps_present_minutes = ?,
                     temps_pause_minutes = ?, nb_pauses = ?,
                     statut = CASE WHEN ? = 1 THEN 'parti'
                                   WHEN statut = 'retard' THEN 'retard'
                                   ELSE 'present' END
                  WHERE id = ?"
             )->execute([
-                $resume['sortie'], $resume['present'], $resume['pause'], $resume['nb_pauses'],
+                $resume['sortie'], $retardDej, $tempsManq, $resume['present'], $resume['pause'], $resume['nb_pauses'],
                 $estParti ? 1 : 0, (int) $pid,
             ]);
         }
