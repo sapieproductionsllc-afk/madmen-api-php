@@ -35,7 +35,8 @@ final class EmployeController
         p.intitule AS poste_libelle,
         d.nom AS departement_nom,
         CONCAT(s.prenom, ' ', s.nom) AS manager_nom,
-        pt.statut AS today_statut, pt.heure_entree AS today_arrivee, pt.retard_minutes AS today_retard";
+        pt.statut AS today_statut, pt.heure_entree AS today_arrivee, pt.retard_minutes AS today_retard,
+        pt.retard_dejeuner_minutes AS today_retard_dejeuner, pt.temps_manquant_minutes AS today_temps_manquant";
 
     private const FROM_JOINS = "FROM employe e
         LEFT JOIN poste p       ON p.id = e.poste_id
@@ -338,11 +339,13 @@ final class EmployeController
     private static function withToday(array $row): array
     {
         $row['today'] = [
-            'statut'         => $row['today_statut'] ?? null,
-            'arrivee'        => $row['today_arrivee'] ?? null,
-            'retard_minutes' => isset($row['today_retard']) ? (int) $row['today_retard'] : null,
+            'statut'                  => $row['today_statut'] ?? null,
+            'arrivee'                 => $row['today_arrivee'] ?? null,
+            'retard_minutes'          => isset($row['today_retard']) ? (int) $row['today_retard'] : null,
+            'retard_dejeuner_minutes' => isset($row['today_retard_dejeuner']) ? (int) $row['today_retard_dejeuner'] : null,
+            'temps_manquant_minutes'  => isset($row['today_temps_manquant']) ? (int) $row['today_temps_manquant'] : null,
         ];
-        unset($row['today_statut'], $row['today_arrivee'], $row['today_retard']);
+        unset($row['today_statut'], $row['today_arrivee'], $row['today_retard'], $row['today_retard_dejeuner'], $row['today_temps_manquant']);
 
         return $row;
     }
