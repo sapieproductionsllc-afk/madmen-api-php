@@ -349,4 +349,69 @@ final class Presence
 
         return (int) (($tsSortie - $fin) / 60);
     }
+
+    /**
+     * Temps de travail MANQUANT (minutes) sur la journée : ce que l'employé était
+     * censé travailler (durée prévue − pause déjeuner) MOINS ce qu'il a réellement
+     * travaillé ; 0 si à jour ou au-delà. Base début/fin = celle de presenceMinutes
+     * (pour que travaillé + manquant se réconcilient). C'est un solde de FIN DE JOURNÉE.
+     */
+    public static function tempsManquant(int $presentMinutes, ?array $h = null): int
+    {
+        $h = $h ?? self::defaultHoraire();
+        $debut = (int) strtotime('2000-01-01 ' . $h['debut']);
+        $fin   = (int) strtotime('2000-01-01 ' . $h['fin']);
+        $spanMin = max(0, (int) (($fin - $debut) / 60));
+
+        $lunchMin = 0;
+        if (!empty($h['dejeuner_debut']) && !empty($h['dejeuner_fin'])) {
+            $ld = (int) strtotime('2000-01-01 ' . $h['dejeuner_debut']);
+            $lf = (int) strtotime('2000-01-01 ' . $h['dejeuner_fin']);
+            $lunchMin = max(0, (int) (($lf - $ld) / 60));
+        }
+
+        $prevuNet = max(0, $spanMin - $lunchMin);
+
+        return max(0, $prevuNet - $presentMinutes);
+    }
+
+    /**
+     * Retard de RETOUR de pause déjeuner (minutes). La pause est une fenêtre FIXE
+     * [dejeuner_debut, dejeuner_fin] : quelle que soit l'heure de DÉPART, il faut être
+     * repointé À/AVANT dejeuner_fin. Si, à dejeuner_fin, le dernier passage est une
+     * SORTIE (l'employé est dehors) et qu'il repointe une ENTRÉE après dejeuner_fin,
+     * retard = floor((retour − dejeuner_fin)/60). Sinon 0 (à l'heure ; traversée sans
+     * pause ; jamais revenu — ce dernier cas relève de tempsManquant).
+     *
+     * @param array<int,array{type:string,horodatage:string}> $passages triés ascendant
+     */
+    public static function retardRetourDejeuner(array $passages, ?array $h = null): int
+    {
+        $h = $h ?? self::defaultHoraire();
+        if (empty($h['dejeuner_debut']) || empty($h['dejeuner_fin']) || $passages === []) {
+            return 0;
+        }
+        $date  = substr((string) $passages[0]['horodatage'], 0, 10);
+        $finTs = (int) strtotime($date . ' ' . $h['dejeuner_fin']);
+
+        // Dernier passage à/avant dejeuner_fin : décide si l'employé est DEHORS à 14:00.
+        $avant = null;
+        foreach ($passages as $p) {
+            if ((int) strtotime((string) $p['horodatage']) <= $finTs) {
+                $avant = $p;
+            }
+        }
+        if ($avant === null || $avant['type'] !== 'sortie') {
+            return 0; // pas dehors à dejeuner_fin (pointé entrée = à l'heure / sans pause)
+        }
+
+        // Première ENTRÉE après dejeuner_fin = le retour tardif.
+        foreach ($passages as $p) {
+            if ($p['type'] === 'entree' && (int) strtotime((string) $p['horodatage']) > $finTs) {
+                return (int) floor(((int) strtotime((string) $p['horodatage']) - $finTs) / 60);
+            }
+        }
+
+        return 0; // jamais revenu
+    }
 }
