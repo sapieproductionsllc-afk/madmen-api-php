@@ -88,16 +88,26 @@ final class HoraireController
             $dep = max(array_column($planning, 'fin')) . ':00';
             $jours = implode(',', array_keys($planning));
 
+            // Pause déjeuner : fenêtre UNIQUE optionnelle, valable aussi en mode planning.
+            $pdeb = isset($body['pause_debut']) ? $this->normTime($body['pause_debut']) : null;
+            $pfin = isset($body['pause_fin']) ? $this->normTime($body['pause_fin']) : null;
+            if (($pdeb === null) !== ($pfin === null)) {
+                Response::error("La pause déjeuner exige 'pause_debut' ET 'pause_fin' (ou aucune des deux)", 422);
+            }
+            if ($pdeb !== null && $pfin !== null && $pfin <= $pdeb) {
+                Response::error("La fin de la pause doit être après son début", 422);
+            }
+
             Database::connection()->prepare(
                 "INSERT INTO horaire_employe
                     (employe_id, heure_arrivee, heure_depart, pause_debut, pause_fin, tolerance_minutes, avance_minutes, jours_travailles, planning)
-                 VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON DUPLICATE KEY UPDATE
                     heure_arrivee = VALUES(heure_arrivee), heure_depart = VALUES(heure_depart),
-                    pause_debut = NULL, pause_fin = NULL,
+                    pause_debut = VALUES(pause_debut), pause_fin = VALUES(pause_fin),
                     tolerance_minutes = VALUES(tolerance_minutes), avance_minutes = VALUES(avance_minutes),
                     jours_travailles = VALUES(jours_travailles), planning = VALUES(planning)"
-            )->execute([$id, $arr, $dep, $tol, $avance, $jours, json_encode($planning)]);
+            )->execute([$id, $arr, $dep, $pdeb, $pfin, $tol, $avance, $jours, json_encode($planning)]);
 
             $this->show($params);
             return; // ne pas tomber dans le mode legacy ci-dessous
