@@ -17,14 +17,29 @@ final class PointageController
         $params = [];
 
         if (($emp = Request::query('employe_id')) !== null) {
+            // Accepte l'id numérique OU le matricule (le profil filtre par matricule).
+            if (!ctype_digit((string) $emp)) {
+                $r = Database::connection()->prepare('SELECT id FROM employe WHERE matricule = ?');
+                $r->execute([(string) $emp]);
+                $emp = (int) ($r->fetchColumn() ?: 0);
+            }
             $sql .= ' AND employe_id = :emp';
-            $params['emp'] = $emp;
+            $params['emp'] = (int) $emp;
         }
         if (($date = Request::query('date')) !== null) {
             $sql .= ' AND date = :date';
             $params['date'] = $date;
         }
-        $sql .= ' ORDER BY id DESC';
+        // Plage de dates (jour / semaine / mois / année) — feuille de pointage.
+        if (($from = Request::query('from')) !== null) {
+            $sql .= ' AND date >= :from';
+            $params['from'] = $from;
+        }
+        if (($to = Request::query('to')) !== null) {
+            $sql .= ' AND date <= :to';
+            $params['to'] = $to;
+        }
+        $sql .= ' ORDER BY date DESC, id DESC';
 
         $stmt = Database::connection()->prepare($sql);
         $stmt->execute($params);
