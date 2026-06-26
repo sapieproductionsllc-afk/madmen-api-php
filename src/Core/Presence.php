@@ -305,19 +305,46 @@ final class Presence
     }
 
     /**
-     * État LIVE d'un agent pour le tableau « Agents présents aujourd'hui » (temps réel).
-     * Règle métier validée : présent quand au bureau, EN PAUSE quand ressorti pendant la
-     * pause déjeuner, PARTI quand ressorti hors de cette fenêtre, ABSENT si jamais pointé.
-     *
-     * @param string     $statutJour        statut du jour (table pointage) : present|retard|parti|absent|conge
-     * @param bool       $aPointe           a une entrée pointée aujourd'hui (heure_entree non nulle)
-     * @param bool       $presentMaintenant son DERNIER passage du jour est une « entrée » (actuellement au bureau)
-     * @param string     $now               instant d'évaluation 'AAAA-MM-JJ HH:MM:SS'
-     * @param array|null $h                 horaire de l'employé (fenêtre de pause) ; null => horaire global
-     * @return string conge|absent|present|retard|pause|parti
+     * Tolérance VISUELLE (minutes) après la fin de pause avant de basculer le libellé
+     * « pas_revenu_pause » -> « jamais_revenu_pause » sur le dashboard. PUREMENT cosmétique :
+     * n'affecte ni le retard du rapport ni la paie (qui restent stricts). Défaut 30.
      */
-    public static function etatLive(string $statutJour, bool $aPointe, bool $presentMaintenant, string $now, ?array $h = null): string
+    public static function graceRetourPause(): int
     {
+        $g = (int) (self::config()['grace_retour_pause'] ?? 30);
+
+        return $g > 0 ? $g : 30;
+    }
+
+    /**
+     * État LIVE d'un agent pour le tableau « Agents présents aujourd'hui » (temps réel).
+     * Libellés de SUIVI (visuels) — la logique stricte (retard, paie) est calculée ailleurs.
+     *
+     * Au bureau => present/retard. Jamais pointé => absent. Sinon (ressorti) :
+     *   - si la DERNIÈRE sortie n'était PAS pendant la pause déjeuner (départ anticipé ou de
+     *     fin de journée) => 'parti' ;
+     *   - si elle était pendant la pause et qu'il n'est pas revenu, progression selon l'heure :
+     *       pendant la pause                         => 'pause'
+     *       fin de pause .. +grace (def. 30 min)     => 'pas_revenu_pause'
+     *       au-delà de la grace, avant la fin de jour=> 'jamais_revenu_pause'
+     *       après l'heure de fin prévue              => 'parti'
+     *
+     * @param string      $statutJour        statut du jour (table pointage) : present|retard|parti|absent|conge
+     * @param bool        $aPointe           a une entrée pointée aujourd'hui (heure_entree non nulle)
+     * @param bool        $presentMaintenant son DERNIER passage du jour est une « entrée » (actuellement au bureau)
+     * @param string      $now               instant d'évaluation 'AAAA-MM-JJ HH:MM:SS'
+     * @param array|null  $h                 horaire de l'employé (fenêtres pause + fin de jour) ; null => global
+     * @param string|null $sortieTs          horodatage de la dernière sortie ('AAAA-MM-JJ HH:MM:SS') si ressorti
+     * @return string conge|absent|present|retard|pause|pas_revenu_pause|jamais_revenu_pause|parti
+     */
+    public static function etatLive(
+        string $statutJour,
+        bool $aPointe,
+        bool $presentMaintenant,
+        string $now,
+        ?array $h = null,
+        ?string $sortieTs = null
+    ): string {
         if ($statutJour === 'conge') {
             return 'conge';
         }
@@ -328,8 +355,32 @@ final class Presence
             // Au bureau : on conserve present/retard ; tout statut résiduel => present.
             return in_array($statutJour, ['present', 'retard'], true) ? $statutJour : 'present';
         }
-        // A pointé mais actuellement RESSORTI : pause déjeuner si dans la fenêtre, sinon parti.
-        return self::estPauseDejeuner($now, $h) ? 'pause' : 'parti';
+
+        // Ressorti. Si la dernière sortie n'était pas pendant la pause déjeuner (départ
+        // anticipé avant la pause, ou départ après être revenu), c'est un simple « parti ».
+        if ($sortieTs === null || !self::estPauseDejeuner($sortieTs, $h)) {
+            return 'parti';
+        }
+
+        // Sortie pendant la pause, pas (encore) revenu : progression visuelle selon l'heure.
+        $h = $h ?? self::defaultHoraire();
+        $jour     = substr($now, 0, 10);
+        $tsNow    = strtotime($now);
+        $finPause = strtotime($jour . ' ' . ($h['dejeuner_fin'] ?? '14:00'));
+        $finGrace = $finPause + self::graceRetourPause() * 60;
+        $finJour  = strtotime($jour . ' ' . ($h['fin'] ?? '18:00'));
+
+        if ($tsNow <= $finPause) {
+            return 'pause';
+        }
+        if ($tsNow <= $finGrace) {
+            return 'pas_revenu_pause';
+        }
+        if ($tsNow < $finJour) {
+            return 'jamais_revenu_pause';
+        }
+
+        return 'parti';
     }
 
     /**

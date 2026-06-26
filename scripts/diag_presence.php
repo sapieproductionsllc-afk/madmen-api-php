@@ -36,19 +36,19 @@ echo "Passages aujourd'hui          : " . (int) $db->query('SELECT COUNT(*) FROM
 // Dernier passage du jour par employé.
 $last = [];
 foreach ($db->query(
-    "SELECT employe_id, type FROM (
-        SELECT employe_id, type,
+    "SELECT employe_id, type, horodatage FROM (
+        SELECT employe_id, type, horodatage,
                ROW_NUMBER() OVER (PARTITION BY employe_id ORDER BY horodatage DESC, id DESC) rn
         FROM pointage_passage WHERE date = CURDATE()
      ) t WHERE rn = 1"
 )->fetchAll() as $r) {
-    $last[(int) $r['employe_id']] = $r['type'];
+    $last[(int) $r['employe_id']] = ['type' => $r['type'], 'ts' => (string) $r['horodatage']];
 }
 
 $agents = $db->query(
     "SELECT e.id, TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
             COALESCE(pt.statut, IF(e.statut = 'conge', 'conge', 'absent')) AS statut,
-            pt.heure_entree AS arrivee, he.pause_debut, he.pause_fin
+            pt.heure_entree AS arrivee, he.heure_arrivee, he.heure_depart, he.pause_debut, he.pause_fin
      FROM employe e
      LEFT JOIN pointage pt        ON pt.employe_id = e.id AND pt.date = CURDATE()
      LEFT JOIN horaire_employe he ON he.employe_id = e.id
@@ -57,18 +57,24 @@ $agents = $db->query(
 )->fetchAll();
 
 $now = date('Y-m-d H:i:s');
+$def = Presence::defaultHoraire();
 $counts = [];
 
 printf("%-22s | %-8s | %-9s | %-6s | %-8s | %s\n", 'NOM', 'raw', 'arrivee', 'lastPP', 'present?', '-> etatLive');
 echo str_repeat('-', 78) . "\n";
 foreach ($agents as $a) {
-    $type = $last[(int) $a['id']] ?? null;
+    $dp = $last[(int) $a['id']] ?? null;
+    $type = $dp['type'] ?? null;
     $aPointe = $a['arrivee'] !== null;
     $present = $type !== null ? ($type === 'entree') : ((string) $a['statut'] !== 'parti');
-    $h = ($a['pause_debut'] !== null && $a['pause_fin'] !== null)
-        ? ['dejeuner_debut' => substr((string) $a['pause_debut'], 0, 5), 'dejeuner_fin' => substr((string) $a['pause_fin'], 0, 5)]
-        : null;
-    $etat = Presence::etatLive((string) $a['statut'], $aPointe, $present, $now, $h);
+    $sortieTs = $type === 'sortie' ? ($dp['ts'] ?? null) : null;
+    $h = [
+        'debut'          => $a['heure_arrivee'] !== null ? substr((string) $a['heure_arrivee'], 0, 5) : $def['debut'],
+        'fin'            => $a['heure_depart'] !== null ? substr((string) $a['heure_depart'], 0, 5) : $def['fin'],
+        'dejeuner_debut' => $a['pause_debut'] !== null ? substr((string) $a['pause_debut'], 0, 5) : $def['dejeuner_debut'],
+        'dejeuner_fin'   => $a['pause_fin'] !== null ? substr((string) $a['pause_fin'], 0, 5) : $def['dejeuner_fin'],
+    ];
+    $etat = Presence::etatLive((string) $a['statut'], $aPointe, $present, $now, $h, $sortieTs);
     $counts[$etat] = ($counts[$etat] ?? 0) + 1;
     printf(
         "%-22s | %-8s | %-9s | %-6s | %-8s | %s\n",

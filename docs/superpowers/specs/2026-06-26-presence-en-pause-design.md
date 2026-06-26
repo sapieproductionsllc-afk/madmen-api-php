@@ -34,10 +34,29 @@ l'horaire global (`config/presence.php`, 12:30–14:00) quand l'employé n'a pas
 3. **`madmen-front-react-js/src/pages/Dashboard.jsx`** — ajouter `pause: "En pause"` au mapping
    `STATUT_LIVE`. La carte ambre « En pause », le filtre et la couleur existent déjà → ils s'activent.
 
-## Hors périmètre (YAGNI)
-- Pages **Présence** et **Activité** (même correctif d'une ligne possible plus tard, sur demande).
-- Sorties hors fenêtre de pause traitées comme **Parti** (pas de cas spécial « pause hors déjeuner »).
+## Mise à jour (2026-06-26) — suivi « pas/jamais revenu de pause »
+
+Pour un employé sorti **pendant la pause** et **pas revenu**, le libellé du dashboard
+progresse dans le temps (repères VISUELS de suivi — n'affectent ni le retard du rapport
+ni la paie, qui restent stricts) :
+
+| Moment | `statut` renvoyé | Libellé front |
+|---|---|---|
+| pendant la pause | `pause` | En pause |
+| fin de pause → +grace (défaut 30 min) | `pas_revenu_pause` | Pas revenu de pause |
+| au-delà de la grace, avant la fin de journée | `jamais_revenu_pause` | Jamais revenu de pause |
+| après l'heure de fin prévue | `parti` | Parti |
+
+- Une sortie **hors** de la fenêtre de pause (départ anticipé, ou départ après être revenu)
+  reste un simple **`parti`**.
+- `Presence::etatLive(...)` prend désormais l'**horodatage de la dernière sortie** (pour savoir
+  si c'était une sortie de pause) ; le contrôleur récupère aussi `heure_arrivee/heure_depart`
+  (fin de journée) en plus de `pause_debut/pause_fin`, toujours en requêtes ensemblistes.
+- Grace configurable : `GRACE_RETOUR_PAUSE` (minutes, défaut 30) dans `config/presence.php`.
+- Front : libellés + tons ajoutés (`Pas revenu de pause` = or, `Jamais revenu de pause` = rose)
+  dans `STATUT_LIVE`, `toneLive`, `ordreLive` et la liste de filtres `statuts`.
 
 ## Tests
-`tests/presence_etat_live_test.php` (runner autonome existant) : couvre absent / present / pause
-(dans la fenêtre) / parti (hors fenêtre, avant et après) / congé.
+`tests/presence_etat_live_test.php` (runner autonome) : 15 cas — absent / present / retard /
+pause / pas_revenu_pause / jamais_revenu_pause / parti (sortie hors pause, et après la fin de
+jour) / congé.

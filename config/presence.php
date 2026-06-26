@@ -24,4 +24,8 @@ return [
     // Pause déjeuner : exclue du temps de présence, ni absence ni retard.
     'dejeuner_debut' => $env['DEJEUNER_DEBUT'] ?? '12:30',
     'dejeuner_fin'   => $env['DEJEUNER_FIN'] ?? '14:00',
+    // Tolérance VISUELLE (dashboard) après la fin de pause avant de basculer le libellé
+    // « Pas revenu de pause » -> « Jamais revenu de pause ». Minutes. PUREMENT cosmétique :
+    // n'affecte NI le retard du rapport NI le calcul de paie (qui restent stricts).
+    'grace_retour_pause' => (int) ($env['GRACE_RETOUR_PAUSE'] ?? 30),
 ];

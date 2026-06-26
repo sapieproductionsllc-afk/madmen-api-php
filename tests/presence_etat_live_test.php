@@ -2,8 +2,12 @@
 declare(strict_types=1);
 
 /**
- * Test AUTONOME de Presence::etatLive (règle « En activité / En pause / Parti / Absent »).
+ * Test AUTONOME de Presence::etatLive (libellés de suivi du dashboard).
  * Lancer : php tests/presence_etat_live_test.php
+ *
+ * États : present/retard (au bureau), pause (sorti pendant la pause), pas_revenu_pause
+ * (fin de pause -> +grace), jamais_revenu_pause (au-delà de la grace, avant la fin de jour),
+ * parti (sortie hors pause OU après la fin de jour), absent (jamais pointé), conge.
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -25,32 +29,32 @@ function check(string $label, $got, $expected): void
     }
 }
 
-// Fenêtre de pause déjeuner 12:30–14:00 (config réelle MADMEN).
+// Horaire : 08:30–18:00, pause 12:30–14:00, grace défaut 30 min -> bascule à 14:30.
 $h = ['debut' => '08:30', 'fin' => '18:00', 'dejeuner_debut' => '12:30', 'dejeuner_fin' => '14:00', 'tolerance' => 0];
-$d = '2026-06-25 '; // jour de référence
+$d = '2026-06-25 ';
 
-echo "== Presence::etatLive ==\n";
+echo "== Presence::etatLive (grace=" . Presence::graceRetourPause() . " min) ==\n";
 
-// Congé : prioritaire (même sans pointage).
+// Congé / absent / au bureau.
 check('conge -> conge', Presence::etatLive('conge', false, false, $d . '13:00:00', $h), 'conge');
-
-// Absent : aucune entrée pointée.
 check('jamais pointe -> absent', Presence::etatLive('absent', false, false, $d . '10:00:00', $h), 'absent');
-
-// Au bureau (dernier passage = entrée) : on garde present/retard.
 check('au bureau, present -> present', Presence::etatLive('present', true, true, $d . '10:00:00', $h), 'present');
 check('au bureau, retard -> retard', Presence::etatLive('retard', true, true, $d . '10:00:00', $h), 'retard');
-check('au bureau a l heure de pause -> present (pas sorti)', Presence::etatLive('present', true, true, $d . '13:00:00', $h), 'present');
 
-// Ressorti PENDANT la pause -> en pause (bornes incluses).
-check('sorti 13:00 -> pause', Presence::etatLive('present', true, false, $d . '13:00:00', $h), 'pause');
-check('sorti 12:30 (debut) -> pause', Presence::etatLive('present', true, false, $d . '12:30:00', $h), 'pause');
-check('sorti 14:00 (fin) -> pause', Presence::etatLive('present', true, false, $d . '14:00:00', $h), 'pause');
+// Sortie PENDANT la pause (13:00), pas revenu -> progression selon l'heure.
+check('sortie 13:00, now 13:00 -> pause', Presence::etatLive('parti', true, false, $d . '13:00:00', $h, $d . '13:00:00'), 'pause');
+check('sortie 13:00, now 14:00 (fin pause) -> pause', Presence::etatLive('parti', true, false, $d . '14:00:00', $h, $d . '13:00:00'), 'pause');
+check('sortie 13:00, now 14:15 -> pas_revenu_pause', Presence::etatLive('parti', true, false, $d . '14:15:00', $h, $d . '13:00:00'), 'pas_revenu_pause');
+check('sortie 13:00, now 14:30 (fin grace) -> pas_revenu_pause', Presence::etatLive('parti', true, false, $d . '14:30:00', $h, $d . '13:00:00'), 'pas_revenu_pause');
+check('sortie 13:00, now 15:00 -> jamais_revenu_pause', Presence::etatLive('parti', true, false, $d . '15:00:00', $h, $d . '13:00:00'), 'jamais_revenu_pause');
+check('sortie 13:00, now 17:59 -> jamais_revenu_pause', Presence::etatLive('parti', true, false, $d . '17:59:00', $h, $d . '13:00:00'), 'jamais_revenu_pause');
+check('sortie 13:00, now 18:00 (fin de jour) -> parti', Presence::etatLive('parti', true, false, $d . '18:00:00', $h, $d . '13:00:00'), 'parti');
+check('sortie 13:00, now 18:30 -> parti', Presence::etatLive('parti', true, false, $d . '18:30:00', $h, $d . '13:00:00'), 'parti');
 
-// Ressorti HORS de la pause -> parti.
-check('sorti 11:00 (avant pause) -> parti', Presence::etatLive('present', true, false, $d . '11:00:00', $h), 'parti');
-check('sorti 14:01 (apres pause) -> parti', Presence::etatLive('present', true, false, $d . '14:01:00', $h), 'parti');
-check('sorti 17:30 (fin de journee) -> parti', Presence::etatLive('present', true, false, $d . '17:30:00', $h), 'parti');
+// Sortie HORS pause -> simple parti (jamais "pas revenu").
+check('sortie 11:00 (avant pause), now 11:30 -> parti', Presence::etatLive('parti', true, false, $d . '11:30:00', $h, $d . '11:00:00'), 'parti');
+check('sortie 16:00 (apres pause), now 16:30 -> parti', Presence::etatLive('parti', true, false, $d . '16:30:00', $h, $d . '16:00:00'), 'parti');
+check('ressorti sans horodatage -> parti', Presence::etatLive('parti', true, false, $d . '15:00:00', $h, null), 'parti');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);
