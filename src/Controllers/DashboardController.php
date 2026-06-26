@@ -36,28 +36,60 @@ final class DashboardController
             "SELECT e.id, e.matricule, TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
                     d.nom AS departement_nom, p.intitule AS poste_libelle,
                     COALESCE(pt.statut, IF(e.statut = 'conge', 'conge', 'absent')) AS statut,
-                    pt.heure_entree AS arrivee
+                    pt.heure_entree AS arrivee,
+                    he.pause_debut, he.pause_fin
              FROM employe e
-             LEFT JOIN departement d ON d.id = e.departement_id
-             LEFT JOIN poste p       ON p.id = e.poste_id
-             LEFT JOIN pointage pt   ON pt.employe_id = e.id AND pt.date = CURDATE()
+             LEFT JOIN departement d      ON d.id = e.departement_id
+             LEFT JOIN poste p            ON p.id = e.poste_id
+             LEFT JOIN pointage pt        ON pt.employe_id = e.id AND pt.date = CURDATE()
+             LEFT JOIN horaire_employe he ON he.employe_id = e.id
              WHERE e.statut <> 'suspendu'
              ORDER BY e.nom, e.prenom"
         )->fetchAll();
 
-        // AUTO-PARTI (affichage) : un agent 'present'/'retard' dont l'heure de fin
-        // prévue du jour est dépassée est affiché 'parti'. Calcul en PHP via le
-        // planning de chaque employé. Mémo planning pour éviter les requêtes redondantes.
-        // Présents = ENTRÉE pointée aujourd'hui ET ni 'parti' ni AUTO-parti.
-        // Présents = entrée pointée aujourd'hui ET statut non 'parti'.
-        // (AUTO-PARTI par planning retiré : Presence::estAutoParti renvoie toujours false —
-        //  on évitait ici une requête planning PAR employé à chaque appel dashboard.)
+        // ÉTAT LIVE par agent : En activité / En pause / Parti / Absent / Congé.
+        // Règle : au bureau => présent ; ressorti pendant la pause déjeuner => EN PAUSE ;
+        // ressorti hors de cette fenêtre => PARTI ; jamais pointé => ABSENT.
+        // Données en UN SEUL lot de requêtes (pas de N+1, cf. note de perf historique).
+        //
+        // 1) Dernier passage K40 du jour par employé -> est-il ACTUELLEMENT au bureau ?
+        $dernierPassage = [];
+        foreach ($db->query(
+            "SELECT employe_id, type FROM (
+                SELECT employe_id, type,
+                       ROW_NUMBER() OVER (PARTITION BY employe_id ORDER BY horodatage DESC, id DESC) rn
+                FROM pointage_passage WHERE date = CURDATE()
+             ) t WHERE rn = 1"
+        )->fetchAll() as $row) {
+            $dernierPassage[(int) $row['employe_id']] = $row['type'];
+        }
+
+        // 2) Application de la règle (Presence::etatLive) + comptage des présents.
+        $now = date('Y-m-d H:i:s');
         $presents = 0;
-        foreach ($agents as $agent) {
-            if ($agent['arrivee'] !== null && (string) $agent['statut'] !== 'parti') {
-                $presents++;
+        foreach ($agents as &$agent) {
+            $type = $dernierPassage[(int) $agent['id']] ?? null;
+            $aPointe = $agent['arrivee'] !== null;
+            // Au bureau si le dernier passage est une entrée ; repli sur le statut si aucun passage détaillé.
+            $presentMaintenant = $type !== null
+                ? ($type === 'entree')
+                : ((string) $agent['statut'] !== 'parti');
+            // Fenêtre de pause de l'employé ; null => fenêtre globale (config 12:30–14:00).
+            $h = ($agent['pause_debut'] !== null && $agent['pause_fin'] !== null)
+                ? [
+                    'dejeuner_debut' => substr((string) $agent['pause_debut'], 0, 5),
+                    'dejeuner_fin'   => substr((string) $agent['pause_fin'], 0, 5),
+                ]
+                : null;
+
+            $agent['statut'] = Presence::etatLive((string) $agent['statut'], $aPointe, $presentMaintenant, $now, $h);
+            unset($agent['pause_debut'], $agent['pause_fin']); // colonnes internes : ne pas exposer
+
+            if (in_array($agent['statut'], ['present', 'retard', 'pause'], true)) {
+                $presents++; // « présents » = au bureau OU en pause (cohérent avec le front)
             }
         }
+        unset($agent); // casse la référence du foreach
 
         Response::json([
             'presents' => $presents,

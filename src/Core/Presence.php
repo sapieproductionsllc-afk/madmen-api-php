@@ -305,6 +305,34 @@ final class Presence
     }
 
     /**
+     * État LIVE d'un agent pour le tableau « Agents présents aujourd'hui » (temps réel).
+     * Règle métier validée : présent quand au bureau, EN PAUSE quand ressorti pendant la
+     * pause déjeuner, PARTI quand ressorti hors de cette fenêtre, ABSENT si jamais pointé.
+     *
+     * @param string     $statutJour        statut du jour (table pointage) : present|retard|parti|absent|conge
+     * @param bool       $aPointe           a une entrée pointée aujourd'hui (heure_entree non nulle)
+     * @param bool       $presentMaintenant son DERNIER passage du jour est une « entrée » (actuellement au bureau)
+     * @param string     $now               instant d'évaluation 'AAAA-MM-JJ HH:MM:SS'
+     * @param array|null $h                 horaire de l'employé (fenêtre de pause) ; null => horaire global
+     * @return string conge|absent|present|retard|pause|parti
+     */
+    public static function etatLive(string $statutJour, bool $aPointe, bool $presentMaintenant, string $now, ?array $h = null): string
+    {
+        if ($statutJour === 'conge') {
+            return 'conge';
+        }
+        if (!$aPointe) {
+            return 'absent';
+        }
+        if ($presentMaintenant) {
+            // Au bureau : on conserve present/retard ; tout statut résiduel => present.
+            return in_array($statutJour, ['present', 'retard'], true) ? $statutJour : 'present';
+        }
+        // A pointé mais actuellement RESSORTI : pause déjeuner si dans la fenêtre, sinon parti.
+        return self::estPauseDejeuner($now, $h) ? 'pause' : 'parti';
+    }
+
+    /**
      * Temps de présence effectif en minutes : durée bornée à [debut, fin] de
      * l'horaire, moins le chevauchement avec la pause déjeuner.
      */
