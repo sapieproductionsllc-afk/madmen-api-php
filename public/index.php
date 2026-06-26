@@ -72,8 +72,10 @@ use MadMen\Controllers\DocumentController;
 use MadMen\Controllers\AjustementController;
 
 // Cohérence horaire PHP/MySQL : fixe le fuseau PHP tôt (depuis APP_TIMEZONE,
-// défaut Europe/Paris). Database aligne ensuite NOW()/CURDATE() MySQL dessus.
-date_default_timezone_set(Env::get('APP_TIMEZONE', 'Europe/Paris'));
+// défaut Africa/Lagos = UTC+1 sans DST, le fuseau du bureau). Database aligne
+// ensuite NOW()/CURDATE() MySQL dessus. Sans ce fuseau local, la fenêtre de pause
+// déjeuner serait évaluée en UTC -> "En pause"/"Parti" décalés d'une heure.
+date_default_timezone_set(Env::get('APP_TIMEZONE', 'Africa/Lagos'));
 
 // Sert les fichiers statiques existants tels quels (serveur intégré PHP).
 if (PHP_SAPI === 'cli-server') {
