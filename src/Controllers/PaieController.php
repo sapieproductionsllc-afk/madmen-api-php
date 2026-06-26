@@ -93,6 +93,24 @@ final class PaieController
         );
         $stmt->execute([$id, $dateDebut, $dateFin]);
 
+        // Tous les passages (entrées/sorties) du mois, groupés par jour -> affichés tels
+        // quels sur la carte du jour (calendrier). ADDITIF : n'entre PAS dans le calcul de
+        // paie, lequel reste basé sur heure_entree/heure_sortie de la table pointage.
+        $passagesParJour = [];
+        $stmtPp = $db->prepare(
+            "SELECT date, type, TIME_FORMAT(horodatage, '%H:%i') AS heure
+             FROM pointage_passage
+             WHERE employe_id = ? AND date BETWEEN ? AND ?
+             ORDER BY date, horodatage, id"
+        );
+        $stmtPp->execute([$id, $dateDebut, $dateFin]);
+        foreach ($stmtPp->fetchAll() as $pp) {
+            $passagesParJour[(string) $pp['date']][] = [
+                'type'  => $pp['type'],   // 'entree' | 'sortie'
+                'heure' => $pp['heure'],  // 'HH:MM'
+            ];
+        }
+
         $detail = [];
         $present = [];
         $totalTravailleSec = 0;
@@ -141,6 +159,7 @@ final class PaieController
                 'normal_seconds' => $normal,
                 'late_seconds'   => $late,
                 'status'         => $status,
+                'passages'       => $passagesParJour[$date] ?? [],
             ];
         }
 
