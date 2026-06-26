@@ -48,8 +48,40 @@ final class PointageController
 
         $stmt = Database::connection()->prepare($sql);
         $stmt->execute($params);
+        $rows = $stmt->fetchAll();
 
-        Response::json($stmt->fetchAll());
+        // Attache TOUS les passages (entrées/sorties) de chaque jour -> mouvements complets
+        // de l'employé (suivi des allées et venues). Mêmes bornes que la requête principale.
+        if ($rows) {
+            $pSql = "SELECT employe_id, date, type, TIME_FORMAT(horodatage, '%H:%i') AS heure
+                     FROM pointage_passage WHERE 1=1";
+            $pParams = [];
+            foreach (['emp' => ' AND employe_id = :emp', 'date' => ' AND date = :date',
+                      'from' => ' AND date >= :from', 'to' => ' AND date <= :to',
+                      'defaut' => ' AND date >= :defaut'] as $k => $clause) {
+                if (isset($params[$k])) {
+                    $pSql .= $clause;
+                    $pParams[$k] = $params[$k];
+                }
+            }
+            $pSql .= ' ORDER BY date, horodatage, id';
+            $pStmt = Database::connection()->prepare($pSql);
+            $pStmt->execute($pParams);
+
+            $parJour = [];
+            foreach ($pStmt->fetchAll() as $pp) {
+                $parJour[$pp['employe_id'] . '|' . $pp['date']][] = [
+                    'type'  => $pp['type'],   // 'entree' | 'sortie'
+                    'heure' => $pp['heure'],  // 'HH:MM'
+                ];
+            }
+            foreach ($rows as &$row) {
+                $row['passages'] = $parJour[$row['employe_id'] . '|' . $row['date']] ?? [];
+            }
+            unset($row);
+        }
+
+        Response::json($rows);
     }
 
     public function store(): void
