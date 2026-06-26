@@ -12,7 +12,12 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use MadMen\Core\Database;
+use MadMen\Core\Env;
 use MadMen\Core\Presence;
+
+// Mirror public/index.php : run in the app's configured timezone (sinon ce script
+// CLI tournerait en UTC et ne refléterait PAS le comportement réel du dashboard web).
+date_default_timezone_set(Env::get('APP_TIMEZONE', 'Europe/Paris'));
 
 $db = Database::connection();
 
