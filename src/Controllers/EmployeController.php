@@ -342,10 +342,27 @@ final class EmployeController
         Response::json($this->find($id) ?? []);
     }
 
+    /**
+     * DELETE /api/employes/{id} — suppression DÉFINITIVE (hard delete).
+     * Toutes les données liées (pointages, sessions, paie, prêts, salaire, documents,
+     * demandes, messages, biométrie, horaires…) sont supprimées EN CASCADE par la base
+     * (cf. migrations : les FK employe sont ON DELETE CASCADE / SET NULL). Irréversible :
+     * pour seulement retirer l'employé des listes en gardant l'historique, l'UI archive.
+     */
     public function destroy(array $params): void
     {
-        $stmt = Database::connection()->prepare('DELETE FROM employe WHERE id = :id');
-        $stmt->execute(['id' => (int) $params['id']]);
+        $db = Database::connection();
+        try {
+            $stmt = $db->prepare('DELETE FROM employe WHERE id = :id');
+            $stmt->execute(['id' => (int) $params['id']]);
+        } catch (PDOException $e) {
+            // En principe impossible (toutes les FK employe cascadent), mais on renvoie un
+            // message clair plutôt qu'un 500 opaque si une contrainte venait à bloquer.
+            if ($e->getCode() === '23000') {
+                Response::error("Suppression impossible : des données liées bloquent l'opération. Archivez plutôt cet employé.", 409);
+            }
+            throw $e;
+        }
 
         if ($stmt->rowCount() === 0) {
             Response::error('Employé introuvable', 404);
