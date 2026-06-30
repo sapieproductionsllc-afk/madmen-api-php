@@ -237,12 +237,22 @@ final class RapportController
                         $retard = (int) $row['retard_minutes'];
                         $cell['etat'] = $retard > 0 ? 'retard' : 'present';
                         $cell['arrivee'] = $row['arrivee'];
-                        $cell['depart'] = $row['depart'];
                         $cell['retard_min'] = $retard;
-                        $cell['minutes'] = $row['minutes'] !== null ? (int) $row['minutes'] : null;
+                        $mins = $row['minutes'] !== null ? (int) $row['minutes'] : null;
+                        // Sortie <= entrée => journée INCOMPLÈTE (encore présent OU pointage de
+                        // sortie manquant). Pas de départ réel ni d'heures -> évite le faux
+                        // « 08:49 -> 08:49 = 0h00 ». Le statut (présent/retard) reste valable.
+                        if ($mins !== null && $mins > 0) {
+                            $cell['depart'] = $row['depart'];
+                            $cell['minutes'] = $mins;
+                            $tHeuresMin += $mins;
+                        } else {
+                            $cell['depart'] = null;
+                            $cell['minutes'] = null;
+                            $cell['en_cours'] = true;
+                        }
                         $tPresents++;
                         if ($retard > 0) { $tRetards++; $tRetardMin += $retard; }
-                        if ($cell['minutes'] !== null) { $tHeuresMin += $cell['minutes']; }
                     }
                 } elseif ($jour > $today) {
                     $cell['etat'] = 'futur';
