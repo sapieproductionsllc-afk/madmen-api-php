@@ -259,8 +259,10 @@ final class RapportController
                     }
                 } elseif ($jour > $today) {
                     $cell['etat'] = 'futur';
-                } elseif ($debutSuivi !== '' && $jour < $debutSuivi) {
-                    $cell['etat'] = 'na'; // employé pas encore enregistré/embauché : aucune donnée
+                } elseif ($debutSuivi !== '' && $jour <= $debutSuivi) {
+                    // Jour d'enregistrement/embauche OU avant : aucune donnée encore -> 'na',
+                    // JAMAIS 'absent' (on ne peut pas être absent le jour même où on est créé).
+                    $cell['etat'] = 'na';
                 } elseif (isset($feries[$jour])) {
                     $cell['etat'] = 'ferie';
                 } elseif ((int) (new \DateTime($jour))->format('N') >= 6) {
