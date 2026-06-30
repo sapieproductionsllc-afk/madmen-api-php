@@ -77,6 +77,15 @@ final class Auth
         if ($role === 'super_admin') {
             return; // Le super admin peut TOUT faire.
         }
+        // Projet B — permissions configurables par rôle sur les domaines gérés.
+        $acces = self::routeAcces($method, $uri);
+        if ($acces !== null) {
+            if (!Permissions::peut($role, $acces[0], $acces[1])) {
+                Response::json(['error' => 'Accès interdit : permission insuffisante'], 403);
+            }
+            return;
+        }
+        // Routes hors domaines de permission : contrôle par rang classique.
         $rank = self::RANKS[$role] ?? 1;
         if ($rank < self::requiredRank($method, $uri)) {
             Response::json(['error' => 'Accès interdit : rôle insuffisant'], 403);
@@ -161,8 +170,8 @@ final class Auth
         if ($method !== 'GET' && preg_match('#^/api/(employes|biometrie|k40|config)#', $uri) === 1) {
             return 4; // écritures de gestion réservées au super_admin
         }
-        // Gestion des comptes super-admin (toutes méthodes) : super_admin uniquement.
-        if (preg_match('#^/api/administrateurs#', $uri) === 1) {
+        // Comptes super-admin + édition de la matrice de permissions : super_admin uniquement.
+        if (preg_match('#^/api/(administrateurs|role-permissions)#', $uri) === 1) {
             return 4;
         }
         // Paie : donnée sensible (salaires) -> directeur minimum, jamais superviseur.
@@ -182,6 +191,57 @@ final class Auth
         }
 
         return 4; // par défaut : prudence
+    }
+
+    /**
+     * Projet B — Résout une route (méthode + uri) en [domaine, niveau requis] pour le
+     * système de permissions configurables, ou null si la route n'est pas gérée par
+     * les permissions (-> contrôle par rang classique). Domaines : cf. Permissions::AREAS.
+     * Niveaux : 'voir' (lecture) ou 'gerer' (écriture). Ne couvre PAS les routes employé
+     * partagées (messagerie /api/conversations|messages : rang 1) ni l'amorçage.
+     *
+     * @return array{0:string,1:string}|null
+     */
+    private static function routeAcces(string $method, string $uri): ?array
+    {
+        $ecrit = $method !== 'GET';
+
+        if (preg_match('#^/api/(employes|biometrie)#', $uri) === 1) {
+            // Sous-routes d'un employé relevant d'un AUTRE domaine :
+            if (preg_match('#^/api/employes/\d+/conge$#', $uri) === 1) {
+                return ['demandes', 'gerer']; // poser / terminer un congé
+            }
+            if (preg_match('#^/api/employes/\d+/(paie|salaire|ajustements)#', $uri) === 1) {
+                return ['paie', $ecrit ? 'gerer' : 'voir'];
+            }
+            if (preg_match('#^/api/employes/\d+/(horaire|presence|pointage)#', $uri) === 1) {
+                return ['pointages', $ecrit ? 'gerer' : 'voir'];
+            }
+            return ['employes', $ecrit ? 'gerer' : 'voir'];
+        }
+        if (preg_match('#^/api/pointages#', $uri) === 1) {
+            return ['pointages', $ecrit ? 'gerer' : 'voir'];
+        }
+        if (preg_match('#^/api/(paie|salaire|prets)#', $uri) === 1) {
+            return ['paie', $ecrit ? 'gerer' : 'voir'];
+        }
+        if (preg_match('#^/api/rapports#', $uri) === 1) {
+            return ['rapports', 'voir'];
+        }
+        if (preg_match('#^/api/demandes#', $uri) === 1) {
+            return ['demandes', $ecrit ? 'gerer' : 'voir'];
+        }
+        if (preg_match('#^/api/dashboard#', $uri) === 1) {
+            return ['presence', 'voir'];
+        }
+        if (preg_match('#^/api/(k40|appareils|jours-feries|parametres)#', $uri) === 1) {
+            return ['administration', $ecrit ? 'gerer' : 'voir'];
+        }
+        if ($ecrit && preg_match('#^/api/(config|postes)#', $uri) === 1) {
+            return ['administration', 'gerer'];
+        }
+
+        return null;
     }
 
     /**

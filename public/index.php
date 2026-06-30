@@ -47,6 +47,7 @@ use MadMen\Controllers\MotifController;
 use MadMen\Controllers\PosteController;
 use MadMen\Controllers\AdministrateurController;
 use MadMen\Controllers\AuthController;
+use MadMen\Controllers\PermissionController;
 use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
 use MadMen\Controllers\PaieController;
@@ -355,6 +356,11 @@ $router->get('/api/administrateurs', [AdministrateurController::class, 'index'])
 $router->post('/api/administrateurs', [AdministrateurController::class, 'store']);
 $router->post('/api/administrateurs/{id}/reset-password', [AdministrateurController::class, 'resetPassword']);
 $router->delete('/api/administrateurs/{id}', [AdministrateurController::class, 'destroy']);
+
+// --- API : Permissions configurables par rôle (Projet B) ---
+$router->get('/api/me/permissions', [PermissionController::class, 'mine']);
+$router->get('/api/role-permissions', [PermissionController::class, 'matrice']);
+$router->put('/api/role-permissions', [PermissionController::class, 'update']);
 // Appareils biométriques (lecture de appareil_biometrique)
 $router->get('/api/appareils', [AppareilController::class, 'index']);
 $router->get('/api/appareils/{id}', [AppareilController::class, 'show']);
