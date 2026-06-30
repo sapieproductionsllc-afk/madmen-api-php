@@ -189,6 +189,7 @@ final class RapportController
              LEFT JOIN departement d ON d.id = e.departement_id
              LEFT JOIN poste p       ON p.id = e.poste_id
              WHERE e.statut <> 'archive'
+               AND COALESCE(e.role, '') <> 'super_admin'  -- les comptes admin ne pointent pas
              ORDER BY e.nom, e.prenom"
         )->fetchAll();
 
