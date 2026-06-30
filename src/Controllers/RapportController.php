@@ -9,6 +9,9 @@ use MadMen\Core\Response;
 
 final class RapportController
 {
+    /** Grâce de ponctualité : une arrivée en retard de <= 5 min compte « à l'heure ». */
+    private const GRACE_RETARD_MIN = 5;
+
     /**
      * Synthèse agrégée pour la page Rapports & Analyses.
      * Query : from (YYYY-MM-DD), to (YYYY-MM-DD), service (nom du département).
@@ -235,9 +238,10 @@ final class RapportController
                         $tAbsents++;
                     } else { // present / retard / parti = jour travaillé
                         $retard = (int) $row['retard_minutes'];
-                        $cell['etat'] = $retard > 0 ? 'retard' : 'present';
+                        $enRetard = $retard > self::GRACE_RETARD_MIN; // grâce de 5 min
+                        $cell['etat'] = $enRetard ? 'retard' : 'present';
                         $cell['arrivee'] = $row['arrivee'];
-                        $cell['retard_min'] = $retard;
+                        $cell['retard_min'] = $enRetard ? $retard : 0;
                         $mins = $row['minutes'] !== null ? (int) $row['minutes'] : null;
                         // Sortie <= entrée => journée INCOMPLÈTE (encore présent OU pointage de
                         // sortie manquant). Pas de départ réel ni d'heures -> évite le faux
@@ -252,7 +256,7 @@ final class RapportController
                             $cell['en_cours'] = true;
                         }
                         $tPresents++;
-                        if ($retard > 0) { $tRetards++; $tRetardMin += $retard; }
+                        if ($enRetard) { $tRetards++; $tRetardMin += $retard; }
                     }
                 } elseif ($jour > $today) {
                     $cell['etat'] = 'futur';
