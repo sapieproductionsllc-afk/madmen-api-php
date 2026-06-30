@@ -16,13 +16,14 @@ final class BiometrieController
     /** Lister les biométries enrôlées d'un employé (sans le gabarit). */
     public function index(array $params): void
     {
-        $this->assertEmploye((int) $params['id']);
+        $employeId = $this->resoudreEmploye($params['id']);
+        $this->assertEmploye($employeId);
 
         $stmt = Database::connection()->prepare(
             'SELECT id, employe_id, type, doigt, badge_rfid, actif, created_at
              FROM employe_biometrie WHERE employe_id = ? ORDER BY id'
         );
-        $stmt->execute([(int) $params['id']]);
+        $stmt->execute([$employeId]);
 
         Response::json($stmt->fetchAll());
     }
@@ -33,7 +34,7 @@ final class BiometrieController
      */
     public function export(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = $this->resoudreEmploye($params['id']);
         $this->assertEmploye($employeId);
 
         $db   = Database::connection();
@@ -84,7 +85,7 @@ final class BiometrieController
      */
     public function store(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = $this->resoudreEmploye($params['id']);
         $this->assertEmploye($employeId);
 
         $body = Request::body();
@@ -273,5 +274,24 @@ final class BiometrieController
         if (!$stmt->fetchColumn()) {
             Response::error('Employé introuvable', 404);
         }
+    }
+
+    /**
+     * Résout un identifiant d'URL (id numérique OU matricule) en id numérique d'employé
+     * (0 si introuvable). Le front appelle ces routes avec le MATRICULE (ex. EMP-0015),
+     * comme les autres endpoints /api/employes/{id} — d'où la résolution cohérente ici.
+     */
+    private function resoudreEmploye($idParam): int
+    {
+        $s = trim((string) $idParam);
+        if ($s === '') {
+            return 0;
+        }
+        if (ctype_digit($s)) {
+            return (int) $s;
+        }
+        $stmt = Database::connection()->prepare('SELECT id FROM employe WHERE matricule = ?');
+        $stmt->execute([$s]);
+        return (int) ($stmt->fetchColumn() ?: 0);
     }
 }
