@@ -352,6 +352,7 @@ $router->get('/api/appareils/{id}', [AppareilController::class, 'show']);
 // Rapports (agrégats + export imprimable -> PDF navigateur)
 $router->get('/api/rapports/synthese', [RapportController::class, 'synthese']);
 $router->get('/api/rapports/export', [RapportController::class, 'export']);
+$router->get('/api/rapports/feuille-temps', [RapportController::class, 'feuilleTemps']);
 // Composition du salaire : primes / retenues manuelles par mois (#4)
 $router->get('/api/employes/{id}/ajustements', [AjustementController::class, 'index']);
 $router->post('/api/employes/{id}/ajustements', [AjustementController::class, 'store']);

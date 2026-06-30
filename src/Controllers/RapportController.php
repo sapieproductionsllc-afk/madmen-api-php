@@ -144,6 +144,155 @@ final class RapportController
     }
 
     /**
+     * GET /api/rapports/feuille-temps?periode=semaine|mois&date=YYYY-MM-DD
+     * Feuille de temps DÉTAILLÉE par employé pour la période : matrice employé × jour
+     * (état + arrivée/départ/heures/retard) + totaux par employé + KPI globaux.
+     * Source : table pointage (statut/heures/retard) + jours fériés. Jour sans pointage :
+     * futur (à venir), férié, repos (sam/dim) ou absent (jour ouvré passé).
+     */
+    public function feuilleTemps(): void
+    {
+        $db = Database::connection();
+
+        $periode = Request::query('periode') === 'mois' ? 'mois' : 'semaine';
+        $ref = Request::query('date');
+        if (!is_string($ref) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $ref) !== 1) {
+            $ref = date('Y-m-d');
+        }
+        $d = new \DateTime($ref);
+        if ($periode === 'mois') {
+            $debut = (clone $d)->modify('first day of this month');
+            $fin   = (clone $d)->modify('last day of this month');
+        } else {
+            $dow = (int) $d->format('N'); // 1=lundi .. 7=dimanche
+            $debut = (clone $d)->modify('-' . ($dow - 1) . ' days');
+            $fin   = (clone $debut)->modify('+6 days');
+        }
+        $debutStr = $debut->format('Y-m-d');
+        $finStr   = $fin->format('Y-m-d');
+
+        $jours = [];
+        for ($c = clone $debut; $c <= $fin; $c->modify('+1 day')) {
+            $jours[] = $c->format('Y-m-d');
+        }
+
+        $ferieStmt = $db->prepare('SELECT date FROM jour_ferie WHERE date BETWEEN ? AND ?');
+        $ferieStmt->execute([$debutStr, $finStr]);
+        $feries = array_fill_keys(array_column($ferieStmt->fetchAll(), 'date'), true);
+
+        $employes = $db->query(
+            "SELECT e.id, e.matricule, TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
+                    d.nom AS departement, p.intitule AS poste
+             FROM employe e
+             LEFT JOIN departement d ON d.id = e.departement_id
+             LEFT JOIN poste p       ON p.id = e.poste_id
+             WHERE e.statut <> 'archive'
+             ORDER BY e.nom, e.prenom"
+        )->fetchAll();
+
+        $ptStmt = $db->prepare(
+            "SELECT employe_id, date,
+                    TIME_FORMAT(heure_entree, '%H:%i') AS arrivee,
+                    TIME_FORMAT(heure_sortie, '%H:%i') AS depart,
+                    CASE WHEN heure_entree IS NOT NULL AND heure_sortie IS NOT NULL
+                         THEN TIMESTAMPDIFF(MINUTE, heure_entree, heure_sortie) END AS minutes,
+                    retard_minutes, statut
+             FROM pointage
+             WHERE date BETWEEN ? AND ?"
+        );
+        $ptStmt->execute([$debutStr, $finStr]);
+        $parEmpJour = [];
+        foreach ($ptStmt->fetchAll() as $r) {
+            $parEmpJour[$r['employe_id'] . '|' . $r['date']] = $r;
+        }
+
+        $today = date('Y-m-d');
+        $workers = [];
+        $kpi = ['ponctuels' => 0, 'retards' => 0, 'absents' => 0, 'conges' => 0, 'retard_total_min' => 0, 'heures_total_min' => 0];
+
+        foreach ($employes as $emp) {
+            $cells = [];
+            $tPresents = 0; $tRetards = 0; $tRetardMin = 0; $tHeuresMin = 0; $tAbsents = 0; $tConges = 0;
+            foreach ($jours as $jour) {
+                $cell = ['date' => $jour];
+                $row = $parEmpJour[$emp['id'] . '|' . $jour] ?? null;
+                if ($row !== null) {
+                    $st = $row['statut'];
+                    if ($st === 'conge') {
+                        $cell['etat'] = 'conge';
+                        $tConges++;
+                    } elseif ($st === 'absent') {
+                        $cell['etat'] = 'absent';
+                        $tAbsents++;
+                    } else { // present / retard / parti = jour travaillé
+                        $retard = (int) $row['retard_minutes'];
+                        $cell['etat'] = $retard > 0 ? 'retard' : 'present';
+                        $cell['arrivee'] = $row['arrivee'];
+                        $cell['depart'] = $row['depart'];
+                        $cell['retard_min'] = $retard;
+                        $cell['minutes'] = $row['minutes'] !== null ? (int) $row['minutes'] : null;
+                        $tPresents++;
+                        if ($retard > 0) { $tRetards++; $tRetardMin += $retard; }
+                        if ($cell['minutes'] !== null) { $tHeuresMin += $cell['minutes']; }
+                    }
+                } elseif ($jour > $today) {
+                    $cell['etat'] = 'futur';
+                } elseif (isset($feries[$jour])) {
+                    $cell['etat'] = 'ferie';
+                } elseif ((int) (new \DateTime($jour))->format('N') >= 6) {
+                    $cell['etat'] = 'repos'; // samedi/dimanche (semaine lun-ven par défaut)
+                } else {
+                    $cell['etat'] = 'absent';
+                    $tAbsents++;
+                }
+                $cells[] = $cell;
+            }
+            $workers[] = [
+                'id'          => (int) $emp['id'],
+                'matricule'   => $emp['matricule'],
+                'name'        => $emp['name'],
+                'departement' => $emp['departement'],
+                'poste'       => $emp['poste'],
+                'jours'       => $cells,
+                'totaux'      => [
+                    'jours_presents' => $tPresents,
+                    'retards'        => $tRetards,
+                    'retard_min'     => $tRetardMin,
+                    'heures_min'     => $tHeuresMin,
+                    'absents'        => $tAbsents,
+                    'conges'         => $tConges,
+                ],
+            ];
+            $kpi['ponctuels']        += $tPresents - $tRetards;
+            $kpi['retards']          += $tRetards;
+            $kpi['absents']          += $tAbsents;
+            $kpi['conges']           += $tConges;
+            $kpi['retard_total_min'] += $tRetardMin;
+            $kpi['heures_total_min'] += $tHeuresMin;
+        }
+
+        $baseP = $kpi['ponctuels'] + $kpi['retards'] + $kpi['absents'];
+        $ponctualite = $baseP > 0 ? (int) round($kpi['ponctuels'] / $baseP * 100) : 0;
+
+        Response::json([
+            'periode'    => $periode,
+            'date_debut' => $debutStr,
+            'date_fin'   => $finStr,
+            'jours'      => $jours,
+            'effectif'   => count($employes),
+            'kpi'        => [
+                'ponctualite'      => $ponctualite,
+                'retards'          => $kpi['retards'],
+                'retard_total_min' => $kpi['retard_total_min'],
+                'absents'          => $kpi['absents'],
+                'conges'           => $kpi['conges'],
+                'heures_total_min' => $kpi['heures_total_min'],
+            ],
+            'workers'    => $workers,
+        ]);
+    }
+
+    /**
      * GET /api/rapports/export — page HTML prête à imprimer (Enregistrer en PDF côté
      * navigateur). Sans dépendance serveur ; ne touche pas le front. Une vraie sortie
      * PDF « brandée » nécessiterait dompdf (cf. docs/INTEGRATION-FRONT.md §4.9).
