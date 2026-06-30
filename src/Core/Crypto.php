@@ -25,6 +25,11 @@ final class Crypto
         $iv = random_bytes(12);
         $tag = '';
         $cipher = openssl_encrypt($plain, self::CIPHER, self::key(), OPENSSL_RAW_DATA, $iv, $tag);
+        if ($cipher === false) {
+            // Ne JAMAIS renvoyer iv.tag.'' (28 octets) : ce serait un gabarit corrompu
+            // stocké comme « enrôlé ». On échoue franchement à la place.
+            throw new \RuntimeException('Chiffrement impossible (openssl_encrypt a échoué).');
+        }
 
         return $iv . $tag . $cipher;
     }

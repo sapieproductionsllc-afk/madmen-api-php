@@ -112,8 +112,30 @@ final class BiometrieController
             if ($raw === false) {
                 Response::error("Le 'template' n'est pas un base64 valide", 422);
             }
-            // Chiffrement du gabarit au repos
-            $template = Crypto::encrypt($raw);
+            // Garde-fou qualité/format : un gabarit exploitable fait >= 100 octets (même
+            // plancher que le push K40 et l'export) et tient dans la colonne BLOB. Un
+            // gabarit minuscule serait stocké « enrôlé » mais inutilisable (jamais poussé).
+            $taille = strlen($raw);
+            if ($taille < 100 || $taille > 65000) {
+                Response::error("Gabarit d'empreinte invalide ou de qualité insuffisante", 422);
+            }
+            // Chiffrement du gabarit au repos (échec = on n'enregistre RIEN de corrompu).
+            try {
+                $template = Crypto::encrypt($raw);
+            } catch (Throwable $e) {
+                error_log('Enrôlement empreinte (employé #' . $employeId . ') : ' . $e->getMessage());
+                Response::error("Échec du chiffrement du gabarit — réessayez", 500);
+            }
+        }
+
+        // Ré-enrôlement d'un doigt = REMPLACEMENT propre (pas de doublons qui s'accumulent) :
+        // on retire l'ancien gabarit du même (employé, type, doigt) avant d'insérer le neuf.
+        // Le push K40 ci-dessous réécrit de toute façon le même emplacement. Rend aussi
+        // l'opération IDEMPOTENTE (un ré-essai après un push lent ne crée pas de doublon).
+        if ($type !== 'rfid' && $doigt !== null && $doigt !== '') {
+            Database::connection()
+                ->prepare('DELETE FROM employe_biometrie WHERE employe_id = ? AND type = ? AND doigt = ?')
+                ->execute([$employeId, $type, $doigt]);
         }
 
         try {
