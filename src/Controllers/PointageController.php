@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace MadMen\Controllers;
 
+use MadMen\Core\Auth;
 use MadMen\Core\Database;
 use MadMen\Core\K40Pointage;
 use MadMen\Core\Presence;
@@ -242,6 +243,101 @@ final class PointageController
         $stmt = $db->prepare('SELECT * FROM pointage WHERE employe_id = ? AND date = ? ORDER BY id DESC LIMIT 1');
         $stmt->execute([$id, $date]);
         Response::json(['message' => 'Jour mis à jour', 'pointage' => $stmt->fetch() ?: null], 200);
+    }
+
+    /**
+     * POST /api/employes/{id}/conge — met l'employé EN CONGÉ sur une plage de dates.
+     * body : { date_debut:'YYYY-MM-DD', date_fin:'YYYY-MM-DD' }.
+     * Écrit pointage.statut='conge' pour CHAQUE jour de la plage (la présence et la paie
+     * le lisent déjà : « En congé » en direct, payé, et retour AUTO après la dernière date)
+     * + enregistre une demande de congé APPROUVÉE (historique). Réservé au super_admin
+     * (cf. Auth : écritures /api/employes = rang 4).
+     */
+    public function poseConge(array $params): void
+    {
+        $db = Database::connection();
+        $id = (int) $params['id'];
+        $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $check->execute([$id]);
+        if (!$check->fetchColumn()) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $body = Request::body();
+        $debut = (string) ($body['date_debut'] ?? '');
+        $fin   = (string) ($body['date_fin'] ?? '');
+        $re = '/^\d{4}-\d{2}-\d{2}$/';
+        if (preg_match($re, $debut) !== 1 || preg_match($re, $fin) !== 1) {
+            Response::error("'date_debut' et 'date_fin' (YYYY-MM-DD) sont requis", 422);
+        }
+        if ($fin < $debut) {
+            Response::error("'date_fin' doit être postérieure ou égale à 'date_debut'", 422);
+        }
+        $d0 = new \DateTime($debut);
+        $d1 = new \DateTime($fin);
+        $nbJours = (int) $d0->diff($d1)->days + 1;
+        if ($nbJours > 366) {
+            Response::error('Plage de congé trop longue (max 366 jours)', 422);
+        }
+
+        $user = Auth::currentUser();
+        $valideur = isset($user['sub']) ? (int) $user['sub'] : null;
+
+        $db->beginTransaction();
+        try {
+            $delPassage = $db->prepare('DELETE FROM pointage_passage WHERE employe_id = ? AND date = ?');
+            $delJour    = $db->prepare('DELETE FROM pointage WHERE employe_id = ? AND date = ?');
+            $insJour    = $db->prepare("INSERT INTO pointage (employe_id, date, statut) VALUES (?, ?, 'conge')");
+            for ($cur = clone $d0; $cur <= $d1; $cur->modify('+1 day')) {
+                $jour = $cur->format('Y-m-d');
+                $delPassage->execute([$id, $jour]); // un jour de congé n'a pas d'allers-retours
+                $delJour->execute([$id, $jour]);     // remplace tout statut existant du jour
+                $insJour->execute([$id, $jour]);
+            }
+            // Trace une demande de congé APPROUVÉE (historique + paie non déduite).
+            $db->prepare(
+                "INSERT INTO demande (employe_id, type, objet, date_debut, date_fin, statut, valide_par)
+                 VALUES (?, 'conge', ?, ?, ?, 'approuve', ?)"
+            )->execute([$id, "Congé du $debut au $fin", $debut, $fin, $valideur]);
+            $db->commit();
+        } catch (\Throwable $ex) {
+            $db->rollBack();
+            throw $ex;
+        }
+
+        Response::json(
+            ['message' => 'Congé enregistré', 'jours' => $nbJours, 'date_debut' => $debut, 'date_fin' => $fin],
+            201,
+        );
+    }
+
+    /**
+     * DELETE /api/employes/{id}/conge — met FIN au congé en cours : retire les jours de
+     * congé à venir (aujourd'hui inclus) pour un retour actif immédiat, et annule les
+     * demandes de congé approuvées encore en cours. Le congé déjà passé reste historisé.
+     */
+    public function retireConge(array $params): void
+    {
+        $db = Database::connection();
+        $id = (int) $params['id'];
+        $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
+        $check->execute([$id]);
+        if (!$check->fetchColumn()) {
+            Response::error('Employé introuvable', 404);
+        }
+
+        $today = date('Y-m-d');
+        $stmt = $db->prepare("DELETE FROM pointage WHERE employe_id = ? AND statut = 'conge' AND date >= ?");
+        $stmt->execute([$id, $today]);
+        $retires = $stmt->rowCount();
+        $db->prepare(
+            "UPDATE demande SET statut = 'annule'
+             WHERE employe_id = ? AND type = 'conge' AND statut = 'approuve' AND date_fin >= ?"
+        )->execute([$id, $today]);
+        // Garde-fou : si le statut administratif avait été basculé à 'conge', on réactive.
+        $db->prepare("UPDATE employe SET statut = 'actif' WHERE id = ? AND statut = 'conge'")->execute([$id]);
+
+        Response::json(['message' => 'Congé terminé', 'jours_retires' => $retires]);
     }
 
     /** Valide un horodatage 'YYYY-MM-DD HH:MM[:SS]' -> 'YYYY-MM-DD HH:MM:SS' ; null si invalide. */

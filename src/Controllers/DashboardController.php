@@ -15,8 +15,13 @@ final class DashboardController
         $db = Database::connection();
         $today = date('Y-m-d');
 
+        // En congé AUJOURD'HUI : statut administratif 'conge' OU un jour de congé posé
+        // sur une plage (pointage.statut='conge' du jour). Couvre les deux mécanismes.
         $enConge = (int) $db->query(
-            "SELECT COUNT(*) FROM employe WHERE statut = 'conge'"
+            "SELECT COUNT(*) FROM employe e
+             WHERE e.statut = 'conge'
+                OR EXISTS (SELECT 1 FROM pointage p
+                           WHERE p.employe_id = e.id AND p.date = CURDATE() AND p.statut = 'conge')"
         )->fetchColumn();
 
         $totalActifs = (int) $db->query(

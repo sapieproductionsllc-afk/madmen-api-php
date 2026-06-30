@@ -229,6 +229,8 @@ $router->post('/api/pointages', [PointageController::class, 'store']);
 $router->get('/api/pointages/{id}/passages', [PointageController::class, 'passages']);
 $router->post('/api/employes/{id}/pointage-manuel', [PointageController::class, 'manuel']);
 $router->put('/api/employes/{id}/pointage-jour', [PointageController::class, 'setJour']);
+$router->post('/api/employes/{id}/conge', [PointageController::class, 'poseConge']);
+$router->delete('/api/employes/{id}/conge', [PointageController::class, 'retireConge']);
 
 // --- API : Sessions (temps réel) ---
 $router->get('/api/sessions', [SessionController::class, 'index']);
