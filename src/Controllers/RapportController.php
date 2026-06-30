@@ -182,7 +182,8 @@ final class RapportController
 
         $employes = $db->query(
             "SELECT e.id, e.matricule, TRIM(CONCAT(e.prenom, ' ', e.nom)) AS name,
-                    d.nom AS departement, p.intitule AS poste
+                    d.nom AS departement, p.intitule AS poste,
+                    DATE(e.created_at) AS cree_le, e.date_embauche
              FROM employe e
              LEFT JOIN departement d ON d.id = e.departement_id
              LEFT JOIN poste p       ON p.id = e.poste_id
@@ -213,6 +214,14 @@ final class RapportController
         foreach ($employes as $emp) {
             $cells = [];
             $tPresents = 0; $tRetards = 0; $tRetardMin = 0; $tHeuresMin = 0; $tAbsents = 0; $tConges = 0;
+            // Début de suivi : avant cette date l'employé n'existait pas dans le système
+            // (enregistré le `cree_le`) ou n'avait pas encore commencé (date_embauche future).
+            // Les jours antérieurs sont 'na' (aucune donnée), JAMAIS 'absent'.
+            $debutSuivi = (string) ($emp['cree_le'] ?? '');
+            $embauche = $emp['date_embauche'] ? substr((string) $emp['date_embauche'], 0, 10) : null;
+            if ($embauche !== null && ($debutSuivi === '' || $embauche > $debutSuivi)) {
+                $debutSuivi = $embauche;
+            }
             foreach ($jours as $jour) {
                 $cell = ['date' => $jour];
                 $row = $parEmpJour[$emp['id'] . '|' . $jour] ?? null;
@@ -237,6 +246,8 @@ final class RapportController
                     }
                 } elseif ($jour > $today) {
                     $cell['etat'] = 'futur';
+                } elseif ($debutSuivi !== '' && $jour < $debutSuivi) {
+                    $cell['etat'] = 'na'; // employé pas encore enregistré/embauché : aucune donnée
                 } elseif (isset($feries[$jour])) {
                     $cell['etat'] = 'ferie';
                 } elseif ((int) (new \DateTime($jour))->format('N') >= 6) {
