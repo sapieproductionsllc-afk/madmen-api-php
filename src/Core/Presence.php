@@ -249,7 +249,8 @@ final class Presence
     {
         $arrivee = strtotime($ts);
         $debut = strtotime(date('Y-m-d', $arrivee) . ' ' . $fenetre['debut']);
-        $grace = $debut + ((int) ($fenetre['tolerance'] ?? 0)) * 60;
+        // Plancher de grâce système (5 min) ; une tolérance d'horaire plus large prime.
+        $grace = $debut + max((int) ($fenetre['tolerance'] ?? 0), self::GRACE_MINUTES) * 60;
 
         return $arrivee <= $grace ? 0 : (int) (($arrivee - $grace) / 60);
     }
@@ -266,11 +267,17 @@ final class Presence
         return in_array(date('N', strtotime($ts)), $jours, true);
     }
 
+    /** Grâce de ponctualité MINIMALE appliquée à tout le système (kiosque, dashboard,
+     *  pointage K40, paie, rapports) : une arrivée en retard de <= 5 min compte « à
+     *  l'heure ». Une tolérance d'horaire SUPÉRIEURE prime (5 min = plancher). */
+    public const GRACE_MINUTES = 5;
+
     /**
      * Minutes de retard. Règle : le retard ne compte QUE ce qui dépasse la marge
      * de tolérance. Tant que l'arrivée est dans (début + tolérance), retard = 0 ;
      * au-delà, retard = minutes écoulées depuis la FIN de la tolérance (pas de saut
      * brutal). Retard = 0 aussi en avance ou si le jour n'est pas travaillé.
+     * La marge est d'au moins GRACE_MINUTES (5) min, partout dans le système.
      * Ex. début 08:30, tolérance 15 : arrivée 08:46 -> 1 min ; 09:00 -> 15 min.
      */
     public static function retardMinutes(string $ts, ?array $h = null): int
@@ -281,7 +288,8 @@ final class Presence
         }
         $arrivee = strtotime($ts);
         $debut = strtotime(date('Y-m-d', $arrivee) . ' ' . $h['debut']);
-        $grace = $debut + ((int) ($h['tolerance'] ?? 0)) * 60;
+        // Plancher de grâce système (5 min) ; une tolérance d'horaire plus large prime.
+        $grace = $debut + max((int) ($h['tolerance'] ?? 0), self::GRACE_MINUTES) * 60;
 
         if ($arrivee <= $grace) {
             return 0;

@@ -4,14 +4,12 @@ declare(strict_types=1);
 namespace MadMen\Controllers;
 
 use MadMen\Core\Database;
+use MadMen\Core\Presence;
 use MadMen\Core\Request;
 use MadMen\Core\Response;
 
 final class RapportController
 {
-    /** Grâce de ponctualité : une arrivée en retard de <= 5 min compte « à l'heure ». */
-    private const GRACE_RETARD_MIN = 5;
-
     /**
      * Synthèse agrégée pour la page Rapports & Analyses.
      * Query : from (YYYY-MM-DD), to (YYYY-MM-DD), service (nom du département).
@@ -238,7 +236,7 @@ final class RapportController
                         $tAbsents++;
                     } else { // present / retard / parti = jour travaillé
                         $retard = (int) $row['retard_minutes'];
-                        $enRetard = $retard > self::GRACE_RETARD_MIN; // grâce de 5 min
+                        $enRetard = $retard > Presence::GRACE_MINUTES; // grâce système (5 min)
                         $cell['etat'] = $enRetard ? 'retard' : 'present';
                         $cell['arrivee'] = $row['arrivee'];
                         $cell['retard_min'] = $enRetard ? $retard : 0;
