@@ -45,6 +45,7 @@ use MadMen\Controllers\K40PushController;
 use MadMen\Controllers\SyncController;
 use MadMen\Controllers\MotifController;
 use MadMen\Controllers\PosteController;
+use MadMen\Controllers\AdministrateurController;
 use MadMen\Controllers\AuthController;
 use MadMen\Controllers\HeuresSupController;
 use MadMen\Controllers\HoraireController;
@@ -241,6 +242,8 @@ $router->post('/api/sessions/login-pin', [SessionController::class, 'loginPin'])
 // --- API : Authentification dashboard (login par PIN -> JWT + rôle) ---
 $router->post('/api/auth/login', [AuthController::class, 'login']);
 $router->post('/api/auth/login-pin', [AuthController::class, 'loginPin']);
+$router->post('/api/auth/login-admin', [AuthController::class, 'loginAdmin']);
+$router->post('/api/auth/changer-mot-de-passe', [AuthController::class, 'changerMotDePasse']);
 $router->post('/api/auth/refresh', [AuthController::class, 'refresh']);
 $router->post('/api/auth/logout', [AuthController::class, 'logout']);
 $router->get('/api/auth/me', [AuthController::class, 'me']);
@@ -346,6 +349,12 @@ $router->put('/api/parametres', [ParametreController::class, 'update']);
 // Comptes & rôles du dashboard (lecture depuis employe)
 $router->get('/api/utilisateurs', [UtilisateurController::class, 'index']);
 $router->get('/api/roles', [UtilisateurController::class, 'roles']);
+
+// --- API : Administrateurs (super-admins : identifiant + mot de passe, invisibles) ---
+$router->get('/api/administrateurs', [AdministrateurController::class, 'index']);
+$router->post('/api/administrateurs', [AdministrateurController::class, 'store']);
+$router->post('/api/administrateurs/{id}/reset-password', [AdministrateurController::class, 'resetPassword']);
+$router->delete('/api/administrateurs/{id}', [AdministrateurController::class, 'destroy']);
 // Appareils biométriques (lecture de appareil_biometrique)
 $router->get('/api/appareils', [AppareilController::class, 'index']);
 $router->get('/api/appareils/{id}', [AppareilController::class, 'show']);

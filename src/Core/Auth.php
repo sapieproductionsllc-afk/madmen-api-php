@@ -40,6 +40,7 @@ final class Auth
         if (
             $uri === '/api/auth/login'
             || $uri === '/api/auth/login-pin'
+            || $uri === '/api/auth/login-admin'
             || $uri === '/api/auth/refresh'
             || $uri === '/api/auth/logout'
             || str_starts_with($uri, '/iclock/')
@@ -159,6 +160,10 @@ final class Auth
         }
         if ($method !== 'GET' && preg_match('#^/api/(employes|biometrie|k40|config)#', $uri) === 1) {
             return 4; // écritures de gestion réservées au super_admin
+        }
+        // Gestion des comptes super-admin (toutes méthodes) : super_admin uniquement.
+        if (preg_match('#^/api/administrateurs#', $uri) === 1) {
+            return 4;
         }
         // Paie : donnée sensible (salaires) -> directeur minimum, jamais superviseur.
         if ($method === 'GET' && preg_match('#^/api/(paie|employes/\d+/paie)$#', $uri) === 1) {

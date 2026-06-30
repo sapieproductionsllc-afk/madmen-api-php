@@ -152,7 +152,91 @@ final class AuthController
         ]);
     }
 
-    /** GET /api/auth/me — renvoie l'utilisateur courant (depuis le jeton). */
+    /**
+     * POST /api/auth/login-admin — { username, password } → { token, refresh_token,
+     * employe, doit_changer_mdp }. Connexion des SUPER-ADMINS par identifiant + mot de
+     * passe (pas de PIN/biométrie). username insensible à la casse (collation _ci).
+     */
+    public function loginAdmin(): void
+    {
+        $body = Request::body();
+        foreach (['username', 'password'] as $champ) {
+            if (empty($body[$champ])) {
+                Response::error("Le champ '$champ' est obligatoire", 422);
+            }
+        }
+        $username = trim((string) $body['username']);
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+
+        if ($this->tropDeTentatives($username, $ip)) {
+            Response::error('Trop de tentatives, réessayez plus tard', 429);
+        }
+
+        $stmt = Database::connection()->prepare(
+            "SELECT id, matricule, username, nom, prenom, role, statut, mot_de_passe_hash, doit_changer_mdp
+             FROM employe WHERE role = 'super_admin' AND username = ? LIMIT 1"
+        );
+        $stmt->execute([$username]);
+        $e = $stmt->fetch();
+
+        if (!$e || empty($e['mot_de_passe_hash']) || !password_verify((string) $body['password'], (string) $e['mot_de_passe_hash'])) {
+            $this->logTentative($username, $ip, 'echec');
+            Response::error('Identifiants invalides', 401);
+        }
+        if ($e['statut'] === 'suspendu') {
+            Response::error('Compte suspendu', 403);
+        }
+
+        $this->logTentative($username, $ip, 'succes');
+        $token = Jwt::encode([
+            'sub'       => (int) $e['id'],
+            'matricule' => $e['matricule'],
+            'username'  => $e['username'],
+            'role'      => $e['role'],
+        ]);
+        $refresh = $this->emettreRefresh((int) $e['id']);
+
+        Response::json([
+            'token'            => $token,
+            'refresh_token'    => $refresh,
+            'doit_changer_mdp' => (int) $e['doit_changer_mdp'] === 1,
+            'employe' => [
+                'id'        => (int) $e['id'],
+                'matricule' => $e['matricule'],
+                'username'  => $e['username'],
+                'nom'       => $e['nom'],
+                'prenom'    => $e['prenom'],
+                'role'      => $e['role'],
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/auth/changer-mot-de-passe — { nouveau } (super-admin connecté).
+     * Définit le nouveau mot de passe (>= 8 car.) et lève le drapeau « doit changer ».
+     */
+    public function changerMotDePasse(): void
+    {
+        $payload = Auth::currentUser();
+        if ($payload === null) {
+            Response::error('Non authentifié', 401);
+        }
+        if (($payload['role'] ?? '') !== 'super_admin') {
+            Response::error('Réservé aux administrateurs', 403);
+        }
+        $nouveau = (string) (Request::body()['nouveau'] ?? '');
+        if (strlen($nouveau) < 8) {
+            Response::error('Le mot de passe doit contenir au moins 8 caractères', 422);
+        }
+
+        Database::connection()->prepare(
+            "UPDATE employe SET mot_de_passe_hash = ?, doit_changer_mdp = 0 WHERE id = ? AND role = 'super_admin'"
+        )->execute([password_hash($nouveau, PASSWORD_BCRYPT), (int) ($payload['sub'] ?? 0)]);
+
+        Response::json(['message' => 'Mot de passe mis à jour']);
+    }
+
+    /** GET /api/auth/me — renvoie l'utilisateur courant (jeton + drapeau « changer mdp »). */
     public function me(): void
     {
         $payload = Auth::currentUser();
@@ -160,10 +244,16 @@ final class AuthController
             Response::error('Non authentifié', 401);
         }
 
+        $stmt = Database::connection()->prepare('SELECT username, doit_changer_mdp FROM employe WHERE id = ?');
+        $stmt->execute([(int) ($payload['sub'] ?? 0)]);
+        $row = $stmt->fetch() ?: [];
+
         Response::json([
-            'id'        => $payload['sub'] ?? null,
-            'matricule' => $payload['matricule'] ?? null,
-            'role'      => $payload['role'] ?? null,
+            'id'               => $payload['sub'] ?? null,
+            'matricule'        => $payload['matricule'] ?? null,
+            'username'         => $row['username'] ?? ($payload['username'] ?? null),
+            'role'             => $payload['role'] ?? null,
+            'doit_changer_mdp' => isset($row['doit_changer_mdp']) && (int) $row['doit_changer_mdp'] === 1,
         ]);
     }
 

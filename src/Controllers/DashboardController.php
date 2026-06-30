@@ -25,7 +25,7 @@ final class DashboardController
         )->fetchColumn();
 
         $totalActifs = (int) $db->query(
-            "SELECT COUNT(*) FROM employe WHERE statut = 'actif'"
+            "SELECT COUNT(*) FROM employe WHERE statut = 'actif' AND COALESCE(role, '') <> 'super_admin'"
         )->fetchColumn();
 
         $actifs = (int) $db->query(
@@ -49,7 +49,7 @@ final class DashboardController
              LEFT JOIN poste p            ON p.id = e.poste_id
              LEFT JOIN pointage pt        ON pt.employe_id = e.id AND pt.date = CURDATE()
              LEFT JOIN horaire_employe he ON he.employe_id = e.id
-             WHERE e.statut <> 'suspendu'
+             WHERE e.statut <> 'suspendu' AND COALESCE(e.role, '') <> 'super_admin'
              ORDER BY e.nom, e.prenom"
         )->fetchAll();
 

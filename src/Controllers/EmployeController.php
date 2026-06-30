@@ -63,13 +63,16 @@ final class EmployeController
         if (Request::query('light') !== null) {
             $rows = $db->query(
                 "SELECT id, matricule, nom, prenom, CONCAT_WS(' ', prenom, nom) AS name
-                 FROM employe WHERE statut <> 'archive' ORDER BY nom, prenom"
+                 FROM employe
+                 WHERE statut <> 'archive' AND COALESCE(role, '') <> 'super_admin'
+                 ORDER BY nom, prenom"
             )->fetchAll();
             Response::json($rows);
             return;
         }
 
-        $sql = 'SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . ' WHERE 1=1';
+        // Les super-admins (comptes d'administration) n'apparaissent JAMAIS dans la liste employés.
+        $sql = 'SELECT ' . self::SELECT_ENRICHED . ' ' . self::FROM_JOINS . " WHERE COALESCE(e.role, '') <> 'super_admin'";
         $params = [];
 
         if (($dep = Request::query('departement_id')) !== null) {
