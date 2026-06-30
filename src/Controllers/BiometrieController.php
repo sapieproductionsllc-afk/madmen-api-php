@@ -305,15 +305,6 @@ final class BiometrieController
      */
     private function resoudreEmploye($idParam): int
     {
-        $s = trim((string) $idParam);
-        if ($s === '') {
-            return 0;
-        }
-        if (ctype_digit($s)) {
-            return (int) $s;
-        }
-        $stmt = Database::connection()->prepare('SELECT id FROM employe WHERE matricule = ?');
-        $stmt->execute([$s]);
-        return (int) ($stmt->fetchColumn() ?: 0);
+        return \MadMen\Core\Employe::resolveId($idParam); // source unique (matricule OU id)
     }
 }

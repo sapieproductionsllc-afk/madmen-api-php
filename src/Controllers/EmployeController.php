@@ -102,16 +102,10 @@ final class EmployeController
         Response::json($employe);
     }
 
-    /** Résout un identifiant d'URL (id numérique OU matricule) en id numérique (0 si introuvable). */
+    /** Résout un identifiant d'URL (id numérique OU matricule) -> source unique. */
     private function resoudreId($idParam): int
     {
-        $s = trim((string) $idParam);
-        if (ctype_digit($s)) {
-            return (int) $s;
-        }
-        $stmt = Database::connection()->prepare('SELECT id FROM employe WHERE matricule = ?');
-        $stmt->execute([$s]);
-        return (int) ($stmt->fetchColumn() ?: 0);
+        return \MadMen\Core\Employe::resolveId($idParam);
     }
 
     public function store(): void
@@ -186,7 +180,7 @@ final class EmployeController
      */
     public function regenererPin(array $params): void
     {
-        $id = (int) $params['id'];
+        $id = $this->resoudreId($params['id']);
         $employe = $this->find($id);
         if ($employe === null) {
             Response::error('Employé introuvable', 404);
@@ -273,7 +267,7 @@ final class EmployeController
 
     public function update(array $params): void
     {
-        $id = (int) $params['id'];
+        $id = $this->resoudreId($params['id']);
         if ($this->find($id) === null) {
             Response::error('Employé introuvable', 404);
         }
@@ -303,7 +297,7 @@ final class EmployeController
 
     public function updateIdentifiants(array $params): void
     {
-        $id = (int) $params['id'];
+        $id = $this->resoudreId($params['id']);
         $employe = $this->find($id);
         if ($employe === null) {
             Response::error('Employé introuvable', 404);
@@ -357,7 +351,7 @@ final class EmployeController
         $db = Database::connection();
         try {
             $stmt = $db->prepare('DELETE FROM employe WHERE id = :id');
-            $stmt->execute(['id' => (int) $params['id']]);
+            $stmt->execute(['id' => $this->resoudreId($params['id'])]);
         } catch (PDOException $e) {
             // En principe impossible (toutes les FK employe cascadent), mais on renvoie un
             // message clair plutôt qu'un 500 opaque si une contrainte venait à bloquer.

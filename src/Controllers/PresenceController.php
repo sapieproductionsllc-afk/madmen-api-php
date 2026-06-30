@@ -138,7 +138,7 @@ final class PresenceController
     public function calendrier(array $params): void
     {
         $db = Database::connection();
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare(
             "SELECT id, matricule, TRIM(CONCAT(prenom, ' ', nom)) AS name, statut

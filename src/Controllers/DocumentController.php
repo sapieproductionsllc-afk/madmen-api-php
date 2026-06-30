@@ -35,7 +35,7 @@ final class DocumentController
     /** POST /api/employes/{id}/documents — téléverse un PDF (multipart « fichier »). */
     public function store(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $this->verifierEmploye($employeId);
 
         $auteurId = Actor::employeId(); // utilisateur courant (JWT) ; null si non identifiable
@@ -77,7 +77,7 @@ final class DocumentController
     /** PATCH /api/employes/{id}/documents/{docId} — renomme (titre/type/description). */
     public function update(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $docId     = (int) $params['docId'];
         $this->verifierEmploye($employeId);
         $this->charger($employeId, $docId); // 404 si introuvable
@@ -117,7 +117,7 @@ final class DocumentController
      */
     public function remplacer(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $docId     = (int) $params['docId'];
         $this->verifierEmploye($employeId);
         $doc = $this->charger($employeId, $docId);
@@ -137,7 +137,7 @@ final class DocumentController
     /** GET /api/employes/{id}/documents/{docId}/fichier — sert le binaire. */
     public function telecharger(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $docId     = (int) $params['docId'];
         $this->verifierEmploye($employeId);
         $doc = $this->charger($employeId, $docId);
@@ -162,7 +162,7 @@ final class DocumentController
     /** DELETE /api/employes/{id}/documents/{docId} — supprime le document (204). */
     public function destroy(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $docId     = (int) $params['docId'];
         $this->verifierEmploye($employeId);
         $doc = $this->charger($employeId, $docId);

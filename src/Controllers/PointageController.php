@@ -155,7 +155,7 @@ final class PointageController
     public function manuel(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $check->execute([$id]);
@@ -203,7 +203,7 @@ final class PointageController
     public function setJour(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
         $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $check->execute([$id]);
         if (!$check->fetchColumn()) {
@@ -256,7 +256,7 @@ final class PointageController
     public function poseConge(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
         $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $check->execute([$id]);
         if (!$check->fetchColumn()) {
@@ -319,7 +319,7 @@ final class PointageController
     public function retireConge(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
         $check = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $check->execute([$id]);
         if (!$check->fetchColumn()) {

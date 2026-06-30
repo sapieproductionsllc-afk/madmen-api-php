@@ -18,7 +18,7 @@ final class HoraireController
     /** GET /api/employes/{id}/horaire — horaire de l'employé (ou défaut global). */
     public function show(array $params): void
     {
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
         $this->assertEmploye($id);
 
         $stmt = Database::connection()->prepare(
@@ -63,7 +63,7 @@ final class HoraireController
     /** PUT /api/employes/{id}/horaire — crée/met à jour l'horaire de l'employé. */
     public function upsert(array $params): void
     {
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
         $this->assertEmploye($id);
         $body = Request::body();
 

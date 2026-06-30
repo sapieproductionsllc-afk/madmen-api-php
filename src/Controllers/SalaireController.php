@@ -24,7 +24,7 @@ final class SalaireController
     public function index(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare('SELECT ' . self::COLS . ' FROM salaire_fixe WHERE employe_id = ? ORDER BY date_application DESC, id DESC');
         $stmt->execute([$id]);
@@ -39,7 +39,7 @@ final class SalaireController
     public function store(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $exists = $db->prepare('SELECT 1 FROM employe WHERE id = ?');
         $exists->execute([$id]);
@@ -61,7 +61,7 @@ final class SalaireController
     public function update(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare('SELECT employe_id FROM salaire_fixe WHERE id = ?');
         $stmt->execute([$id]);
@@ -109,7 +109,7 @@ final class SalaireController
     public function destroy(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare('SELECT employe_id FROM salaire_fixe WHERE id = ?');
         $stmt->execute([$id]);

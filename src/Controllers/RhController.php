@@ -17,7 +17,7 @@ final class RhController
     /** GET /api/employes/{id}/documents — documents RH de l'employé. */
     public function documents(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $this->verifierEmploye($employeId);
 
         $stmt = Database::connection()->prepare(
@@ -37,7 +37,7 @@ final class RhController
     /** GET /api/employes/{id}/historique-rh — historique RH de l'employé. */
     public function historique(array $params): void
     {
-        $employeId = (int) $params['id'];
+        $employeId = \MadMen\Core\Employe::resolveId($params['id']);
         $this->verifierEmploye($employeId);
 
         $stmt = Database::connection()->prepare(

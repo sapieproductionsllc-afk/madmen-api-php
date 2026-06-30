@@ -20,7 +20,7 @@ final class AjustementController
     public function index(array $params): void
     {
         $sql = 'SELECT ' . self::COLS . ' FROM paie_ajustement WHERE employe_id = :id';
-        $args = ['id' => (int) $params['id']];
+        $args = ['id' => \MadMen\Core\Employe::resolveId($params['id'])];
 
         $periode = Request::query('periode');
         if (is_string($periode) && preg_match(self::PERIODE, $periode) === 1) {
@@ -62,7 +62,7 @@ final class AjustementController
              VALUES (:emp, :periode, :type, :libelle, :montant)'
         );
         $stmt->execute([
-            'emp'     => (int) $params['id'],
+            'emp'     => \MadMen\Core\Employe::resolveId($params['id']),
             'periode' => $periode,
             'type'    => $type,
             'libelle' => mb_substr($libelle, 0, 160),

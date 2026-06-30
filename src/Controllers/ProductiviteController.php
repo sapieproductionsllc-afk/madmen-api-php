@@ -75,7 +75,7 @@ final class ProductiviteController
     public function show(array $params): void
     {
         $db = Database::connection();
-        $id = (int) $params['id'];
+        $id = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare("SELECT id, matricule, CONCAT(prenom, ' ', nom) AS nom FROM employe WHERE id = ?");
         $stmt->execute([$id]);
