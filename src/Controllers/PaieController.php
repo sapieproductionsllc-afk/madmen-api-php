@@ -254,8 +254,14 @@ final class PaieController
         $primes = (float) ($aj['primes'] ?? 0);
         $retenues = (float) ($aj['retenues'] ?? 0);
 
-        $stmtAv = $db->prepare("SELECT COALESCE(SUM(mensualite), 0) FROM pret WHERE employe_id = ? AND statut = 'en_cours'");
-        $stmtAv->execute([$id]);
+        // Mensualité de prêt : déduite UNIQUEMENT à partir du mois où le prêt existe
+        // (created_at) — un bulletin d'un mois ANTÉRIEUR au prêt ne doit rien déduire.
+        $stmtAv = $db->prepare(
+            "SELECT COALESCE(SUM(mensualite), 0) FROM pret
+             WHERE employe_id = ? AND statut = 'en_cours'
+               AND DATE_FORMAT(created_at, '%Y-%m') <= ?"
+        );
+        $stmtAv->execute([$id, $mois]);
         $avances = (float) ($stmtAv->fetchColumn() ?: 0);
 
         // Heures supplémentaires du mois (#2) : la table heures_supplementaires est

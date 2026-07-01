@@ -60,7 +60,7 @@ final class PresenceController
                     )
              LEFT JOIN poste_travail pt ON pt.id = s.poste_travail_id
              LEFT JOIN pointage po ON po.employe_id = e.id AND po.date = CURDATE()
-             WHERE e.statut <> 'suspendu'
+             WHERE e.statut NOT IN ('suspendu', 'archive')
              ORDER BY e.matricule"
         );
         $stmt->execute();

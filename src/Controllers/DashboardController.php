@@ -49,7 +49,7 @@ final class DashboardController
              LEFT JOIN poste p            ON p.id = e.poste_id
              LEFT JOIN pointage pt        ON pt.employe_id = e.id AND pt.date = CURDATE()
              LEFT JOIN horaire_employe he ON he.employe_id = e.id
-             WHERE e.statut <> 'suspendu' AND COALESCE(e.role, '') <> 'super_admin'
+             WHERE e.statut NOT IN ('suspendu', 'archive') AND COALESCE(e.role, '') <> 'super_admin'
              ORDER BY e.nom, e.prenom"
         )->fetchAll();
 
@@ -76,6 +76,7 @@ final class DashboardController
         $now = date('Y-m-d H:i:s');
         $def = Presence::defaultHoraire(); // horaire global de repli (une seule fois)
         $presents = 0;
+        $absents = 0;
         foreach ($agents as &$agent) {
             $dp = $dernierPassage[(int) $agent['id']] ?? null;
             $type = $dp['type'] ?? null;
@@ -100,13 +101,15 @@ final class DashboardController
 
             if (in_array($agent['statut'], ['present', 'retard', 'pause'], true)) {
                 $presents++; // « présents » = au bureau OU en pause (cohérent avec le front)
+            } elseif ($agent['statut'] === 'absent') {
+                $absents++; // SEULS les vrais absents ; 'conge','parti','pas_revenu_pause'... exclus
             }
         }
         unset($agent); // casse la référence du foreach
 
         Response::json([
             'presents' => $presents,
-            'absents'  => max(0, $totalActifs - $presents),
+            'absents'  => $absents,
             'en_conge' => $enConge,
             'actifs'   => $actifs,
             'inactifs' => $inactifs,

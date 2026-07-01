@@ -224,6 +224,9 @@ final class RapportController
             if ($embauche !== null && ($debutSuivi === '' || $embauche > $debutSuivi)) {
                 $debutSuivi = $embauche;
             }
+            // Planning PROPRE à l'employé -> repos vs absent selon SES jours travaillés
+            // (et non un week-end Sam/Dim codé en dur qui contredit le calendrier/paie).
+            $planningEmp = Presence::planning($db, (int) $emp['id']);
             foreach ($jours as $jour) {
                 $cell = ['date' => $jour];
                 $row = $parEmpJour[$emp['id'] . '|' . $jour] ?? null;
@@ -237,7 +240,10 @@ final class RapportController
                         $tAbsents++;
                     } else { // present / retard / parti = jour travaillé
                         $retard = (int) $row['retard_minutes'];
-                        $enRetard = $retard > Presence::GRACE_MINUTES; // grâce système (5 min)
+                        // retard_minutes est DÉJÀ net de la grâce (appliquée au stockage) : une
+                        // valeur > 0 = déjà au-delà des 5 min. Ne PAS réappliquer la grâce ici
+                        // (double grâce -> retards sous-comptés / ponctuels sur-comptés).
+                        $enRetard = $retard > 0;
                         $cell['etat'] = $enRetard ? 'retard' : 'present';
                         $cell['arrivee'] = $row['arrivee'];
                         $cell['retard_min'] = $enRetard ? $retard : 0;
@@ -265,8 +271,8 @@ final class RapportController
                     $cell['etat'] = 'na';
                 } elseif (isset($feries[$jour])) {
                     $cell['etat'] = 'ferie';
-                } elseif ((int) (new \DateTime($jour))->format('N') >= 6) {
-                    $cell['etat'] = 'repos'; // samedi/dimanche (semaine lun-ven par défaut)
+                } elseif (Presence::fenetreJour($planningEmp, $jour) === null) {
+                    $cell['etat'] = 'repos'; // jour NON travaillé selon le planning de l'employé
                 } else {
                     $cell['etat'] = 'absent';
                     $tAbsents++;
