@@ -73,8 +73,11 @@ final class RapportController
 
         $presents = (int) ($donutRow['presents'] ?? 0);
         $retards = (int) ($donutRow['retards'] ?? 0);
-        $absents = (int) ($donutRow['absents'] ?? 0);
         $conges = (int) ($donutRow['conges'] ?? 0);
+        // Les jours ABSENT ne sont PAS stockés en base (K40 n'insère que present/retard/
+        // parti ; poseConge insère conge). On les CALCULE : jours ouvrés attendus (planning
+        // de chaque employé, hors fériés, après l'entrée en service) sans pointage couvrant.
+        $absents = $this->compterAbsents($db, $from, $to, $service);
 
         // Taux de présence (hors congés) : (présents + retards) / (présents + retards + absents).
         $base = $presents + $retards + $absents;
@@ -136,6 +139,70 @@ final class RapportController
             'tendance' => $tendance,
             'tempsEcranMoyen' => $tempsEcranMoyen,
         ];
+    }
+
+    /**
+     * Compte les VRAIES absences sur une fenêtre : jours ouvrés attendus (planning de
+     * chaque employé actif, hors fériés, après l'entrée en service, jusqu'à aujourd'hui)
+     * SANS pointage present/retard/parti/conge. Les jours 'absent' n'existent pas en base.
+     */
+    private function compterAbsents(\PDO $db, ?string $from, ?string $to, ?string $service): int
+    {
+        $today = date('Y-m-d');
+        $winFrom = $from ?? date('Y-m-d', strtotime('-7 day'));
+        $winTo = min($to ?? $today, $today); // jamais de jours futurs
+        if ($winTo < $winFrom) {
+            return 0;
+        }
+        $feries = JourFerieController::map($db, $winFrom, $winTo);
+
+        // Jours déjà « couverts » (présent/retard/parti/congé) par employé.
+        $cov = $db->prepare(
+            "SELECT employe_id, date FROM pointage
+             WHERE date BETWEEN ? AND ? AND statut IN ('present','retard','parti','conge')"
+        );
+        $cov->execute([$winFrom, $winTo]);
+        $couvert = [];
+        foreach ($cov->fetchAll() as $c) {
+            $couvert[$c['employe_id'] . '|' . $c['date']] = true;
+        }
+
+        $sql = "SELECT e.id, DATE(e.created_at) AS cree_le, e.date_embauche
+                FROM employe e LEFT JOIN departement dep ON dep.id = e.departement_id
+                WHERE e.statut = 'actif' AND COALESCE(e.role, '') <> 'super_admin'";
+        if ($service !== null) {
+            $sql .= ' AND dep.nom = :service';
+        }
+        $stmt = $db->prepare($sql);
+        $stmt->execute($service !== null ? ['service' => $service] : []);
+
+        $absents = 0;
+        foreach ($stmt->fetchAll() as $emp) {
+            $debutService = (string) ($emp['cree_le'] ?? '');
+            $emb = !empty($emp['date_embauche']) ? substr((string) $emp['date_embauche'], 0, 10) : null;
+            if ($emb !== null && ($debutService === '' || $emb > $debutService)) {
+                $debutService = $emb;
+            }
+            $planning = Presence::planning($db, (int) $emp['id']);
+            for ($t = strtotime($winFrom), $tb = strtotime($winTo); $t <= $tb; $t = strtotime('+1 day', $t)) {
+                $jour = date('Y-m-d', $t);
+                if (Presence::fenetreJour($planning, $jour) === null) {
+                    continue; // jour de repos (planning)
+                }
+                if (isset($feries[$jour])) {
+                    continue; // férié
+                }
+                if ($debutService !== '' && $jour <= $debutService) {
+                    continue; // avant l'entrée en service
+                }
+                if (isset($couvert[$emp['id'] . '|' . $jour])) {
+                    continue; // présent / retard / parti / congé
+                }
+                $absents++;
+            }
+        }
+
+        return $absents;
     }
 
     /** GET /api/rapports/synthese — agrégats JSON. */

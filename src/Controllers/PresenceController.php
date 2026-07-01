@@ -141,13 +141,22 @@ final class PresenceController
         $employeId = \MadMen\Core\Employe::resolveId($params['id']);
 
         $stmt = $db->prepare(
-            "SELECT id, matricule, TRIM(CONCAT(prenom, ' ', nom)) AS name, statut
+            "SELECT id, matricule, TRIM(CONCAT(prenom, ' ', nom)) AS name, statut,
+                    DATE(created_at) AS cree_le, date_embauche
              FROM employe WHERE id = ?"
         );
         $stmt->execute([$employeId]);
         $employe = $stmt->fetch();
         if (!$employe) {
             Response::error('Employé introuvable', 404);
+        }
+
+        // Entrée en service : avant cette date l'employé n'existait pas (créé) ou n'avait
+        // pas commencé (embauche) -> ces jours sont 'na', JAMAIS 'absent'.
+        $debutService = substr((string) ($employe['cree_le'] ?? ''), 0, 10);
+        $emb = !empty($employe['date_embauche']) ? substr((string) $employe['date_embauche'], 0, 10) : null;
+        if ($emb !== null && ($debutService === '' || $emb > $debutService)) {
+            $debutService = $emb;
         }
 
         // Mois demandé (par défaut : mois courant). Validé strictement YYYY-MM.
@@ -197,7 +206,8 @@ final class PresenceController
                 isset($feries[$date]) ? (string) $feries[$date] : null,
                 $estTravaille,
                 (string) $employe['statut'],
-                $fenetre
+                $fenetre,
+                $debutService
             );
 
             $jours[] = [
@@ -263,7 +273,8 @@ final class PresenceController
         ?string $ferieLibelle,
         bool $estTravaille,
         string $employeStatut,
-        ?array $fenetre = null
+        ?array $fenetre = null,
+        string $debutService = ''
     ): array {
         if ($ferieLibelle !== null) {
             return ['ferie', $ferieLibelle];
@@ -302,6 +313,10 @@ final class PresenceController
         }
         if ($date > $aujourdhui) {
             return ['futur', 'À venir'];
+        }
+        // Avant l'entrée en service (embauche/création) : aucune donnée -> 'na', jamais 'absent'.
+        if ($debutService !== '' && $date <= $debutService) {
+            return ['na', 'Non enregistré'];
         }
 
         return ['absent', 'Absent'];

@@ -157,16 +157,54 @@ final class DemandeController
         $user = Auth::currentUser();
         $valideur = isset($user['sub']) ? (int) $user['sub'] : null;
 
-        $stmt = Database::connection()->prepare(
+        $db = Database::connection();
+        $demandeId = (int) $params['id'];
+
+        // Récupère la demande AVANT la décision : un congé APPROUVÉ doit aussi POSER les
+        // jours 'conge' dans pointage, sinon le calendrier/présence affiche « absent »
+        // alors que la paie le compte payé (incohérence relevée à l'audit).
+        $dem = $db->prepare("SELECT employe_id, type, date_debut, date_fin FROM demande WHERE id = ? AND statut = 'en_attente'");
+        $dem->execute([$demandeId]);
+        $demande = $dem->fetch();
+
+        $stmt = $db->prepare(
             "UPDATE demande SET statut = ?, motif_refus = ?, valide_par = ?
              WHERE id = ? AND statut = 'en_attente'"
         );
-        $stmt->execute([$decision, $motif ?: null, $valideur, (int) $params['id']]);
+        $stmt->execute([$decision, $motif ?: null, $valideur, $demandeId]);
         if ($stmt->rowCount() === 0) {
             Response::error('Demande introuvable ou déjà traitée', 409);
         }
 
+        if ($decision === 'approuve' && $demande && ($demande['type'] ?? '') === 'conge'
+            && !empty($demande['date_debut']) && !empty($demande['date_fin'])) {
+            $this->poserConge($db, (int) $demande['employe_id'], (string) $demande['date_debut'], (string) $demande['date_fin']);
+        }
+
         Response::json(['message' => $decision === 'approuve' ? 'Demande approuvée' : 'Demande refusée']);
+    }
+
+    /** Pose les jours 'conge' dans pointage sur une plage (congé approuvé). Best-effort. */
+    private function poserConge(\PDO $db, int $employeId, string $debut, string $fin): void
+    {
+        try {
+            $d0 = new \DateTime($debut);
+            $d1 = new \DateTime($fin);
+        } catch (\Throwable $e) {
+            return;
+        }
+        if ($d1 < $d0 || (int) $d0->diff($d1)->days > 366) {
+            return;
+        }
+        $delPassage = $db->prepare('DELETE FROM pointage_passage WHERE employe_id = ? AND date = ?');
+        $delJour    = $db->prepare('DELETE FROM pointage WHERE employe_id = ? AND date = ?');
+        $insJour    = $db->prepare("INSERT INTO pointage (employe_id, date, statut) VALUES (?, ?, 'conge')");
+        for ($cur = clone $d0; $cur <= $d1; $cur->modify('+1 day')) {
+            $jour = $cur->format('Y-m-d');
+            $delPassage->execute([$employeId, $jour]); // un jour de congé n'a pas d'allers-retours
+            $delJour->execute([$employeId, $jour]);     // remplace tout statut existant du jour
+            $insJour->execute([$employeId, $jour]);
+        }
     }
 
     // ---------------------------------------------------------------- helpers
