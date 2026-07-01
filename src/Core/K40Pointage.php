@@ -306,12 +306,17 @@ final class K40Pointage
      *  - pause    = somme des intervalles sortie->entree (temps réellement absent)
      *
      * @param array<int,array{type:string,horodatage:string}> $passages
-     * @return array{entree:string,sortie:string,present:int,pause:int,nb_pauses:int}
+     * @return array{entree:string,sortie:?string,present:int,pause:int,nb_pauses:int}
      */
     private static function resumeJournee(array $passages, ?array $horaire = null): array
     {
         $entree = $passages[0]['horodatage'];
-        $sortie = $passages[count($passages) - 1]['horodatage'];
+        // La SORTIE n'existe que si le DERNIER passage est réellement une 'sortie'.
+        // Sinon (un seul punch d'arrivée, ou retour de pause) la personne est TOUJOURS
+        // présente -> heure_sortie NULL. Évite le bug « 1 punch = entrée ET sortie à la
+        // même heure » (le dernier passage était l'entrée elle-même -> journée close net).
+        $dernier = $passages[count($passages) - 1];
+        $sortie = $dernier['type'] === 'sortie' ? $dernier['horodatage'] : null;
         $present = 0;
         $pause = 0;
         $nbPauses = 0;
