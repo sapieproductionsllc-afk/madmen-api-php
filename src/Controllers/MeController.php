@@ -117,7 +117,7 @@ final class MeController
         $id = $this->employeId();
         $db = Database::connection();
 
-        $stmt = $db->prepare('SELECT id, matricule, nom, prenom, salaire FROM employe WHERE id = ?');
+        $stmt = $db->prepare('SELECT id, matricule, nom, prenom, salaire, DATE(created_at) AS created_at, date_embauche FROM employe WHERE id = ?');
         $stmt->execute([$id]);
         $employe = $stmt->fetch();
         if (!$employe) {

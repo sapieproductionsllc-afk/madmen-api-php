@@ -148,13 +148,18 @@ final class K40Pointage
             //    (ex. Yohann pointé 07:52 pour une prise à 08:30 -> perdu).
             // c) À/APRÈS l'heure de DÉPART prévue : la personne est censée être partie.
             if (Presence::estApresFin($ts, $fenetre)) {
-                [$aArrivee, $aSortie] = self::etatJourK40($db, $employeId, $date);
-                if (!$aArrivee || $aSortie) {
-                    // Aucune arrivée ce jour (1er punch après fin) OU déjà partie
-                    // (sortie déjà enregistrée) -> on ignore (reste 'parti').
+                [$aArrivee, $aSortie, $dernierTs] = self::etatJourK40($db, $employeId, $date);
+                // « Déjà parti » = la DERNIÈRE sortie a eu lieu APRÈS la fin prévue (vrai
+                // départ du soir). Une sortie AVANT la fin (pause déjeuner / sortie brève
+                // non re-badgée) ne compte PAS comme un départ -> ce punch après-fin est
+                // le vrai DÉPART et doit être enregistré (sinon tout l'après-midi est perdu).
+                $dejaParti = $aSortie && $dernierTs !== null && Presence::estApresFin($dernierTs, $fenetre);
+                if (!$aArrivee || $dejaParti) {
+                    // Aucune arrivée ce jour (1er punch après fin) OU vrai départ déjà
+                    // enregistré -> on ignore (reste 'parti').
                     return 'ignore';
                 }
-                // Arrivée présente sans sortie -> ce punch est le DÉPART.
+                // Arrivée présente, pas encore vraiment parti -> ce punch est le DÉPART.
                 $forceType = 'sortie';
             }
             // d) Sinon (dans [debut - avance, fin)) -> enregistrement NORMAL ci-dessous.
@@ -276,28 +281,33 @@ final class K40Pointage
     }
 
     /**
-     * État K40 d'un jour pour le filtrage : [aArrivee, aSortie].
+     * État K40 d'un jour pour le filtrage : [aArrivee, aSortie, dernierHorodatage].
      *  - aArrivee : au moins un passage 'entree' existe ce jour ;
-     *  - aSortie  : le DERNIER passage du jour est une 'sortie' (la personne est
-     *               actuellement repartie). Sert à décider, pour un punch >= fin, si
-     *               on l'enregistre comme départ ou si on l'ignore (déjà parti).
+     *  - aSortie  : le DERNIER passage du jour est une 'sortie' ;
+     *  - dernierHorodatage : horodatage du dernier passage (ou null). Permet de
+     *               distinguer une VRAIE fin de journée (dernière sortie APRÈS la fin
+     *               prévue) d'une simple pause déjeuner (sortie AVANT la fin) —
+     *               sinon un déjeuner non re-badgé bloquerait le vrai départ du soir.
      *
-     * @return array{0:bool,1:bool}
+     * @return array{0:bool,1:bool,2:?string}
      */
     private static function etatJourK40(PDO $db, int $employeId, string $date): array
     {
         $stmt = $db->prepare(
-            'SELECT type FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
+            'SELECT type, horodatage FROM pointage_passage WHERE employe_id = ? AND date = ? ORDER BY horodatage, id'
         );
         $stmt->execute([$employeId, $date]);
-        $types = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        if ($types === []) {
-            return [false, false];
+        $rows = $stmt->fetchAll();
+        if ($rows === []) {
+            return [false, false, null];
         }
-        $aArrivee = in_array('entree', $types, true);
-        $aSortie = ($types[count($types) - 1] === 'sortie');
+        $aArrivee = false;
+        foreach ($rows as $r) {
+            if ($r['type'] === 'entree') { $aArrivee = true; break; }
+        }
+        $dernier = $rows[count($rows) - 1];
 
-        return [$aArrivee, $aSortie];
+        return [$aArrivee, $dernier['type'] === 'sortie', (string) $dernier['horodatage']];
     }
 
     /**
@@ -306,11 +316,17 @@ final class K40Pointage
      *  - pause    = somme des intervalles sortie->entree (temps réellement absent)
      *
      * @param array<int,array{type:string,horodatage:string}> $passages
-     * @return array{entree:string,sortie:?string,present:int,pause:int,nb_pauses:int}
+     * @return array{entree:?string,sortie:?string,present:int,pause:int,nb_pauses:int}
      */
     private static function resumeJournee(array $passages, ?array $horaire = null): array
     {
-        $entree = $passages[0]['horodatage'];
+        // L'ENTRÉE = 1re 'entree' réelle du jour (null si le jour n'a QUE des sorties,
+        // ex. édition manuelle « sortie seule ») -> on n'écrit JAMAIS une sortie dans
+        // heure_entree (évitait un jour « entré ET sorti à la même heure »).
+        $entree = null;
+        foreach ($passages as $p) {
+            if ($p['type'] === 'entree') { $entree = $p['horodatage']; break; }
+        }
         // La SORTIE n'existe que si le DERNIER passage est réellement une 'sortie'.
         // Sinon (un seul punch d'arrivée, ou retour de pause) la personne est TOUJOURS
         // présente -> heure_sortie NULL. Évite le bug « 1 punch = entrée ET sortie à la

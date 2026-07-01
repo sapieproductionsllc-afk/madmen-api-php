@@ -27,7 +27,7 @@ final class PaieController
         // Accepte l'id numérique OU le matricule (le profil tire le bulletin par matricule).
         $idParam = trim((string) $params['id']);
         $colonne = ctype_digit($idParam) ? 'id' : 'matricule';
-        $stmt = $db->prepare("SELECT id, matricule, nom, prenom, salaire FROM employe WHERE $colonne = ?");
+        $stmt = $db->prepare("SELECT id, matricule, nom, prenom, salaire, DATE(created_at) AS created_at, date_embauche FROM employe WHERE $colonne = ?");
         $stmt->execute([$idParam]);
         $employe = $stmt->fetch();
         if (!$employe) {
@@ -43,7 +43,7 @@ final class PaieController
         $db = Database::connection();
         $mois = $this->moisValide(Request::query('mois'));
 
-        $stmt = $db->query("SELECT id, matricule, nom, prenom, salaire FROM employe WHERE statut = 'actif' ORDER BY nom, prenom");
+        $stmt = $db->query("SELECT id, matricule, nom, prenom, salaire, DATE(created_at) AS created_at, date_embauche FROM employe WHERE statut = 'actif' ORDER BY nom, prenom");
         $out = [];
         foreach ($stmt->fetchAll() as $employe) {
             $bulletin = self::calculer($db, $employe, $mois);
@@ -68,6 +68,16 @@ final class PaieController
         $dateFin = date('Y-m-t', strtotime($dateDebut));
         $today = date('Y-m-d');
         $borneAbsence = min($dateFin, $today); // on ne marque pas absent un jour futur
+
+        // ENTRÉE EN SERVICE : avant cette date l'employé n'existait pas (créé le
+        // created_at) ou n'avait pas encore commencé (date_embauche). Les jours
+        // antérieurs/égaux sont 'NA' -> JAMAIS comptés absents ni DÉDUITS de la paie
+        // (un embauché en cours de mois n'est pas absent avant son arrivée).
+        $debutService = substr((string) ($employe['created_at'] ?? ''), 0, 10);
+        $emb = !empty($employe['date_embauche']) ? substr((string) $employe['date_embauche'], 0, 10) : null;
+        if ($emb !== null && ($debutService === '' || $emb > $debutService)) {
+            $debutService = $emb;
+        }
 
         // Emploi du temps PAR JOUR de l'employé (ou repli horaire unique).
         $planning = Presence::planning($db, $id);
@@ -180,6 +190,16 @@ final class PaieController
             $w = Presence::fenetreJour($planning, $date);
             if ($w === null || isset($present[$date])) {
                 continue; // repos, ou déjà pointé
+            }
+            // Avant l'entrée en service (embauche/création) : 'NA' -> JAMAIS absent ni
+            // déduit. Corrige la déduction fantôme d'un embauché en cours de mois.
+            if ($debutService !== '' && $date <= $debutService) {
+                $detail[$date] = [
+                    'date' => $date, 'check_in' => null, 'check_out' => null,
+                    'worked_seconds' => 0, 'normal_seconds' => 0, 'late_seconds' => 0,
+                    'status' => 'NA',
+                ];
+                continue;
             }
             if (isset($feries[$date])) {
                 $joursFeries++;

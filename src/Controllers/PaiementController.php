@@ -67,7 +67,7 @@ final class PaiementController
             }
             $employeId = (int) $rawId;
 
-            $stmt = $db->prepare('SELECT id, matricule, nom, prenom, salaire FROM employe WHERE id = ?');
+            $stmt = $db->prepare('SELECT id, matricule, nom, prenom, salaire, DATE(created_at) AS created_at, date_embauche FROM employe WHERE id = ?');
             $stmt->execute([$employeId]);
             $employe = $stmt->fetch();
             if (!$employe) {
